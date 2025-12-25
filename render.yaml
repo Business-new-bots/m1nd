@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: m1nd-bot
+    env: java
+    buildCommand: mvn clean package -DskipTests
+    startCommand: java -jar target/m1nd-0.0.1-SNAPSHOT.jar
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: PORT
+        fromService:
+          type: web
+          name: m1nd-bot
+          property: port
+
