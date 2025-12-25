@@ -1,11 +1,15 @@
 spring:
   application:
     name: m1nd
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:}
+server:
+  port: ${PORT:8080}
 
 telegram:
   bot:
-    token: ${TELEGRAM_BOT_TOKEN:}
-    username: ${TELEGRAM_BOT_USERNAME:}
+   token: ${TELEGRAM_BOT_TOKEN:}
+   username: ${TELEGRAM_BOT_USERNAME:}
 
 llm:
   api:
