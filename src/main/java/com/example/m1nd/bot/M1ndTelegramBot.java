@@ -106,6 +106,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         llmService.getAnswer(messageText, userId)
             .subscribe(
                 answer -> {
+                    // Логируем длину полученного ответа
+                    logger.info("Получен ответ от LLM, длина: {} символов", answer.length());
+                    
                     // Разбиваем длинный ответ на части и отправляем
                     sendLongMessage(chatId, answer);
                     userService.incrementQuestionsCount(userId);
@@ -132,7 +135,13 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
      */
     private void sendLongMessage(Long chatId, String text) {
         final int MAX_MESSAGE_LENGTH = 4096;
-        final int PREFIX_LENGTH = 20; // Примерная длина префикса "(X/Y)\n\n"
+        
+        if (text == null || text.isEmpty()) {
+            logger.warn("Попытка отправить пустое сообщение");
+            return;
+        }
+        
+        logger.info("Обработка сообщения длиной {} символов", text.length());
         
         if (text.length() <= MAX_MESSAGE_LENGTH) {
             // Если сообщение короткое, отправляем как есть
@@ -142,72 +151,110 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             
             try {
                 execute(message);
+                logger.info("Сообщение отправлено целиком (длина: {})", text.length());
             } catch (TelegramApiException e) {
                 logger.error("Ошибка при отправке сообщения", e);
+                // Если даже короткое сообщение не отправилось, возможно оно все же слишком длинное
+                // Попробуем разбить
+                if (text.length() > 0) {
+                    logger.info("Попытка разбить сообщение после ошибки");
+                    splitAndSend(chatId, text);
+                }
             }
         } else {
             // Разбиваем на части
-            int offset = 0;
-            int partNumber = 1;
-            // Учитываем длину префикса при расчете максимальной длины части
-            int maxPartLength = MAX_MESSAGE_LENGTH - PREFIX_LENGTH;
-            int totalParts = (int) Math.ceil((double) text.length() / maxPartLength);
+            splitAndSend(chatId, text);
+        }
+    }
+    
+    /**
+     * Разбивает текст на части и отправляет их последовательно
+     */
+    private void splitAndSend(Long chatId, String text) {
+        final int MAX_MESSAGE_LENGTH = 4096;
+        final int SAFE_PREFIX_LENGTH = 30; // Запас для префикса "(XX/XX)\n\n"
+        
+        int offset = 0;
+        int partNumber = 1;
+        int maxPartLength = MAX_MESSAGE_LENGTH - SAFE_PREFIX_LENGTH;
+        int totalParts = (int) Math.ceil((double) text.length() / maxPartLength);
+        
+        logger.info("Разбиваю сообщение на {} частей", totalParts);
+        
+        while (offset < text.length()) {
+            int endIndex = Math.min(offset + maxPartLength, text.length());
+            String part = text.substring(offset, endIndex);
             
-            while (offset < text.length()) {
-                int endIndex = Math.min(offset + maxPartLength, text.length());
-                String part = text.substring(offset, endIndex);
+            // Если это не последняя часть, пытаемся найти хорошее место для разрыва
+            if (endIndex < text.length() && partNumber < totalParts) {
+                // Ищем перенос строки в последних 300 символах
+                int searchStart = Math.max(0, part.length() - 300);
+                int lastNewline = part.lastIndexOf('\n', part.length() - 1);
+                int lastDoubleNewline = part.lastIndexOf("\n\n", part.length() - 1);
                 
-                // Если это не последняя часть и разрыв происходит не на границе слова,
-                // пытаемся найти ближайший перенос строки или пробел
-                if (endIndex < text.length() && partNumber < totalParts) {
-                    int lastNewline = part.lastIndexOf('\n');
-                    int lastSpace = part.lastIndexOf(' ');
-                    
-                    // Предпочитаем перенос строки, если он не слишком далеко от конца
-                    // Оставляем запас для префикса
-                    int searchStart = maxPartLength - 200;
-                    if (lastNewline > searchStart) {
-                        part = text.substring(offset, offset + lastNewline + 1);
-                        endIndex = offset + lastNewline + 1;
-                    } else if (lastSpace > searchStart) {
+                // Предпочитаем двойной перенос строки (конец абзаца)
+                if (lastDoubleNewline >= searchStart) {
+                    part = text.substring(offset, offset + lastDoubleNewline + 2);
+                    endIndex = offset + lastDoubleNewline + 2;
+                } else if (lastNewline >= searchStart) {
+                    part = text.substring(offset, offset + lastNewline + 1);
+                    endIndex = offset + lastNewline + 1;
+                } else {
+                    // Если переноса строки нет, ищем пробел
+                    int lastSpace = part.lastIndexOf(' ', part.length() - 1);
+                    if (lastSpace >= searchStart) {
                         part = text.substring(offset, offset + lastSpace);
-                        endIndex = offset + lastSpace;
+                        endIndex = offset + lastSpace + 1; // +1 чтобы пропустить пробел
                     }
                 }
-                
-                SendMessage message = new SendMessage();
-                message.setChatId(chatId.toString());
-                
-                // Добавляем номер части, если сообщение разбито на несколько
-                String prefix = String.format("(%d/%d)\n\n", partNumber, totalParts);
-                String messageText = prefix + part;
-                
-                // Дополнительная проверка на случай, если префикс + часть все равно превышают лимит
-                if (messageText.length() > MAX_MESSAGE_LENGTH) {
-                    // Обрезаем часть, чтобы поместиться с префиксом
-                    int availableLength = MAX_MESSAGE_LENGTH - prefix.length();
-                    part = part.substring(0, Math.min(availableLength, part.length()));
-                    messageText = prefix + part;
-                }
-                
-                message.setText(messageText);
-                
-                try {
-                    execute(message);
-                    logger.info("Отправлена часть {}/{} (длина: {})", partNumber, totalParts, messageText.length());
-                    // Небольшая задержка между сообщениями, чтобы не превысить rate limit
-                    Thread.sleep(100);
-                } catch (TelegramApiException e) {
-                    logger.error("Ошибка при отправке части сообщения {}/{}", partNumber, totalParts, e);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    logger.error("Прервана отправка сообщения", e);
-                }
-                
-                offset = endIndex;
-                partNumber++;
             }
+            
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            
+            // Добавляем номер части
+            String prefix = String.format("(%d/%d)\n\n", partNumber, totalParts);
+            String messageText = prefix + part;
+            
+            // Финальная проверка длины
+            if (messageText.length() > MAX_MESSAGE_LENGTH) {
+                int availableLength = MAX_MESSAGE_LENGTH - prefix.length();
+                if (availableLength > 0) {
+                    part = part.substring(0, availableLength);
+                    messageText = prefix + part;
+                } else {
+                    logger.error("Префикс слишком длинный! Пропускаю часть {}", partNumber);
+                    offset = endIndex;
+                    partNumber++;
+                    continue;
+                }
+            }
+            
+            message.setText(messageText);
+            
+            try {
+                execute(message);
+                logger.info("✓ Отправлена часть {}/{} (длина текста: {}, общая длина: {})", 
+                    partNumber, totalParts, part.length(), messageText.length());
+                
+                // Задержка между сообщениями
+                if (partNumber < totalParts) {
+                    Thread.sleep(150);
+                }
+            } catch (TelegramApiException e) {
+                logger.error("✗ Ошибка при отправке части {}/{}: {}", partNumber, totalParts, e.getMessage());
+                // Продолжаем отправку следующих частей
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.error("Прервана отправка сообщения", e);
+                break;
+            }
+            
+            offset = endIndex;
+            partNumber++;
         }
+        
+        logger.info("Завершена отправка всех частей сообщения");
     }
 }
 
