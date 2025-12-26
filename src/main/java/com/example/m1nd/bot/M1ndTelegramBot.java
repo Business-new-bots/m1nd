@@ -106,17 +106,10 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         llmService.getAnswer(messageText, userId)
             .subscribe(
                 answer -> {
-                    SendMessage responseMessage = new SendMessage();
-                    responseMessage.setChatId(chatId.toString());
-                    responseMessage.setText(answer);
-                    
-                    try {
-                        execute(responseMessage);
-                        userService.incrementQuestionsCount(userId);
-                        logger.info("Ответ отправлен пользователю {}: {}", userId, answer.substring(0, Math.min(50, answer.length())));
-                    } catch (TelegramApiException e) {
-                        logger.error("Ошибка при отправке ответа", e);
-                    }
+                    // Разбиваем длинный ответ на части и отправляем
+                    sendLongMessage(chatId, answer);
+                    userService.incrementQuestionsCount(userId);
+                    logger.info("Ответ отправлен пользователю {}: {}", userId, answer.substring(0, Math.min(50, answer.length())));
                 },
                 error -> {
                     logger.error("Ошибка при получении ответа от LLM", error);
@@ -131,6 +124,77 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     }
                 }
             );
+    }
+    
+    /**
+     * Разбивает длинное сообщение на части и отправляет их последовательно.
+     * Telegram ограничивает длину текстового сообщения 4096 символами.
+     */
+    private void sendLongMessage(Long chatId, String text) {
+        final int MAX_MESSAGE_LENGTH = 4096;
+        
+        if (text.length() <= MAX_MESSAGE_LENGTH) {
+            // Если сообщение короткое, отправляем как есть
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText(text);
+            
+            try {
+                execute(message);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения", e);
+            }
+        } else {
+            // Разбиваем на части
+            int offset = 0;
+            int partNumber = 1;
+            int totalParts = (int) Math.ceil((double) text.length() / MAX_MESSAGE_LENGTH);
+            
+            while (offset < text.length()) {
+                int endIndex = Math.min(offset + MAX_MESSAGE_LENGTH, text.length());
+                String part = text.substring(offset, endIndex);
+                
+                // Если это не последняя часть и разрыв происходит не на границе слова,
+                // пытаемся найти ближайший перенос строки или пробел
+                if (endIndex < text.length() && partNumber < totalParts) {
+                    int lastNewline = part.lastIndexOf('\n');
+                    int lastSpace = part.lastIndexOf(' ');
+                    
+                    // Предпочитаем перенос строки, если он не слишком далеко от конца
+                    if (lastNewline > MAX_MESSAGE_LENGTH - 200) {
+                        part = text.substring(offset, offset + lastNewline + 1);
+                        endIndex = offset + lastNewline + 1;
+                    } else if (lastSpace > MAX_MESSAGE_LENGTH - 200) {
+                        part = text.substring(offset, offset + lastSpace);
+                        endIndex = offset + lastSpace;
+                    }
+                }
+                
+                SendMessage message = new SendMessage();
+                message.setChatId(chatId.toString());
+                
+                // Добавляем номер части, если сообщение разбито на несколько
+                if (totalParts > 1) {
+                    message.setText(String.format("(%d/%d)\n\n%s", partNumber, totalParts, part));
+                } else {
+                    message.setText(part);
+                }
+                
+                try {
+                    execute(message);
+                    // Небольшая задержка между сообщениями, чтобы не превысить rate limit
+                    Thread.sleep(100);
+                } catch (TelegramApiException e) {
+                    logger.error("Ошибка при отправке части сообщения {}/{}", partNumber, totalParts, e);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.error("Прервана отправка сообщения", e);
+                }
+                
+                offset = endIndex;
+                partNumber++;
+            }
+        }
     }
 }
 
