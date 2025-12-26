@@ -132,6 +132,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
      */
     private void sendLongMessage(Long chatId, String text) {
         final int MAX_MESSAGE_LENGTH = 4096;
+        final int PREFIX_LENGTH = 20; // Примерная длина префикса "(X/Y)\n\n"
         
         if (text.length() <= MAX_MESSAGE_LENGTH) {
             // Если сообщение короткое, отправляем как есть
@@ -148,10 +149,12 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             // Разбиваем на части
             int offset = 0;
             int partNumber = 1;
-            int totalParts = (int) Math.ceil((double) text.length() / MAX_MESSAGE_LENGTH);
+            // Учитываем длину префикса при расчете максимальной длины части
+            int maxPartLength = MAX_MESSAGE_LENGTH - PREFIX_LENGTH;
+            int totalParts = (int) Math.ceil((double) text.length() / maxPartLength);
             
             while (offset < text.length()) {
-                int endIndex = Math.min(offset + MAX_MESSAGE_LENGTH, text.length());
+                int endIndex = Math.min(offset + maxPartLength, text.length());
                 String part = text.substring(offset, endIndex);
                 
                 // Если это не последняя часть и разрыв происходит не на границе слова,
@@ -161,10 +164,12 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     int lastSpace = part.lastIndexOf(' ');
                     
                     // Предпочитаем перенос строки, если он не слишком далеко от конца
-                    if (lastNewline > MAX_MESSAGE_LENGTH - 200) {
+                    // Оставляем запас для префикса
+                    int searchStart = maxPartLength - 200;
+                    if (lastNewline > searchStart) {
                         part = text.substring(offset, offset + lastNewline + 1);
                         endIndex = offset + lastNewline + 1;
-                    } else if (lastSpace > MAX_MESSAGE_LENGTH - 200) {
+                    } else if (lastSpace > searchStart) {
                         part = text.substring(offset, offset + lastSpace);
                         endIndex = offset + lastSpace;
                     }
@@ -174,14 +179,22 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 message.setChatId(chatId.toString());
                 
                 // Добавляем номер части, если сообщение разбито на несколько
-                if (totalParts > 1) {
-                    message.setText(String.format("(%d/%d)\n\n%s", partNumber, totalParts, part));
-                } else {
-                    message.setText(part);
+                String prefix = String.format("(%d/%d)\n\n", partNumber, totalParts);
+                String messageText = prefix + part;
+                
+                // Дополнительная проверка на случай, если префикс + часть все равно превышают лимит
+                if (messageText.length() > MAX_MESSAGE_LENGTH) {
+                    // Обрезаем часть, чтобы поместиться с префиксом
+                    int availableLength = MAX_MESSAGE_LENGTH - prefix.length();
+                    part = part.substring(0, Math.min(availableLength, part.length()));
+                    messageText = prefix + part;
                 }
+                
+                message.setText(messageText);
                 
                 try {
                     execute(message);
+                    logger.info("Отправлена часть {}/{} (длина: {})", partNumber, totalParts, messageText.length());
                     // Небольшая задержка между сообщениями, чтобы не превысить rate limit
                     Thread.sleep(100);
                 } catch (TelegramApiException e) {
