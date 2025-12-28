@@ -36,3 +36,7 @@ app:
   data:
     users-file: users.json
     prompt-file: prompt.txt
+
+search:
+  enabled: ${SEARCH_ENABLED:true}
+  # DuckDuckGo не требует API ключей или регистрации
