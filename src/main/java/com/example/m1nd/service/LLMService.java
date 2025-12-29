@@ -1,5 +1,6 @@
 package com.example.m1nd.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -7,12 +8,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 
 @Slf4j
 @Service
@@ -156,18 +161,58 @@ public class LLMService {
             .bodyValue(requestBody)
             .retrieve()
             .bodyToMono(String.class)
+            .timeout(Duration.ofSeconds(30))
+            .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
+                .filter(throwable -> {
+                    // Retry только для временных ошибок
+                    if (throwable instanceof WebClientResponseException) {
+                        WebClientResponseException ex = (WebClientResponseException) throwable;
+                        int status = ex.getStatusCode().value();
+                        // Retry для 429 (rate limit) и 5xx ошибок
+                        return status == 429 || (status >= 500 && status < 600);
+                    }
+                    return throwable instanceof TimeoutException;
+                })
+                .doBeforeRetry(retrySignal -> 
+                    log.warn("Повторная попытка запроса к Groq API (попытка {})", 
+                        retrySignal.totalRetries() + 1))
+            )
             .map(responseBody -> {
                 try {
                     JsonNode response = objectMapper.readTree(responseBody);
-                    String answer = response.get("choices").get(0).get("message").get("content").asText();
+                    JsonNode choices = response.get("choices");
+                    if (choices == null || !choices.isArray() || choices.size() == 0) {
+                        log.error("Пустой ответ от Groq API: {}", responseBody);
+                        throw new RuntimeException("Пустой ответ от API");
+                    }
+                    JsonNode message = choices.get(0).get("message");
+                    if (message == null || message.get("content") == null) {
+                        log.error("Некорректная структура ответа от Groq API: {}", responseBody);
+                        throw new RuntimeException("Некорректная структура ответа");
+                    }
+                    String answer = message.get("content").asText();
+                    if (answer == null || answer.isEmpty()) {
+                        log.error("Пустое содержимое ответа от Groq API");
+                        throw new RuntimeException("Пустое содержимое ответа");
+                    }
                     conversationService.addMessage(userId, "assistant", answer);
                     return answer;
-                } catch (Exception e) {
-                    log.error("Ошибка при парсинге ответа от Groq API", e);
+                } catch (JsonProcessingException e) {
+                    log.error("Ошибка при парсинге ответа от Groq API. Ответ: {}", responseBody, e);
                     throw new RuntimeException("Ошибка при обработке ответа", e);
                 }
             })
-            .doOnError(error -> log.error("Ошибка при запросе к Groq API", error));
+            .doOnError(error -> {
+                if (error instanceof WebClientResponseException) {
+                    WebClientResponseException ex = (WebClientResponseException) error;
+                    log.error("Ошибка HTTP при запросе к Groq API. Status: {}, Body: {}", 
+                        ex.getStatusCode(), ex.getResponseBodyAsString());
+                } else if (error instanceof TimeoutException) {
+                    log.error("Таймаут при запросе к Groq API (превышено 30 секунд)");
+                } else {
+                    log.error("Ошибка при запросе к Groq API", error);
+                }
+            });
     }
     
     private Mono<String> getAnswerFromOpenAI(List<Map<String, String>> history, Long userId) {

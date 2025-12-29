@@ -16,10 +16,10 @@ llm:
     provider: groq  # groq, huggingface, gemini, openai
     groq:
       api-key: ${GROQ_API_KEY:}
-      model: llama-3.1-8b-instant
+      model: llama-3.1-70b-versatile
       url: https://api.groq.com/openai/v1/chat/completions
       temperature: 0.7
-      max-tokens: 500
+      max-tokens: 1500
     huggingface:
       api-key: ${HUGGINGFACE_API_KEY:}
       model: mistralai/Mistral-7B-Instruct-v0.2
@@ -36,7 +36,3 @@ app:
   data:
     users-file: users.json
     prompt-file: prompt.txt
-
-search:
-  enabled: ${SEARCH_ENABLED:true}
-  # DuckDuckGo не требует API ключей или регистрации
