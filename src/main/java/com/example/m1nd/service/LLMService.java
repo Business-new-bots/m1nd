@@ -27,7 +27,6 @@ public class LLMService {
     private final WebClient.Builder webClientBuilder;
     private final ConversationService conversationService;
     private final PromptService promptService;
-    private final SearchService searchService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     @Value("${llm.api.provider}")
@@ -78,71 +77,20 @@ public class LLMService {
         // Инициализируем историю диалога, если её нет
         conversationService.initializeHistory(userId, systemPrompt);
         
-        // Проверяем, нужен ли поиск для этого вопроса
-        boolean needsSearch = shouldSearch(question);
+        // Добавляем вопрос пользователя в историю
+        conversationService.addMessage(userId, "user", question);
         
-        if (needsSearch) {
-            log.info("Выполняю поиск для вопроса: {}", question);
-            // Выполняем поиск и добавляем результаты в контекст
-            return searchService.search(question)
-                .flatMap(searchResults -> {
-                    String searchContext = searchService.formatSearchResults(searchResults);
-                    String enhancedQuestion = question + searchContext;
-                    
-                    // Добавляем вопрос с результатами поиска в историю
-                    conversationService.addMessage(userId, "user", enhancedQuestion);
-                    
-                    // Получаем историю диалога
-                    List<Map<String, String>> history = conversationService.getHistory(userId);
-                    
-                    // Выбираем провайдера и отправляем запрос
-                    return switch (provider.toLowerCase()) {
-                        case "groq" -> getAnswerFromGroq(history, userId);
-                        case "openai" -> getAnswerFromOpenAI(history, userId);
-                        case "huggingface" -> getAnswerFromHuggingFace(enhancedQuestion, userId);
-                        case "gemini" -> getAnswerFromGemini(enhancedQuestion, userId);
-                        default -> Mono.error(new IllegalArgumentException("Неподдерживаемый провайдер: " + provider));
-                    };
-                });
-        } else {
-            // Добавляем вопрос пользователя в историю
-            conversationService.addMessage(userId, "user", question);
-            
-            // Получаем историю диалога
-            List<Map<String, String>> history = conversationService.getHistory(userId);
-            
-            // Выбираем провайдера и отправляем запрос
-            return switch (provider.toLowerCase()) {
-                case "groq" -> getAnswerFromGroq(history, userId);
-                case "openai" -> getAnswerFromOpenAI(history, userId);
-                case "huggingface" -> getAnswerFromHuggingFace(question, userId);
-                case "gemini" -> getAnswerFromGemini(question, userId);
-                default -> Mono.error(new IllegalArgumentException("Неподдерживаемый провайдер: " + provider));
-            };
-        }
-    }
-    
-    /**
-     * Определяет, нужен ли поиск для данного вопроса
-     */
-    private boolean shouldSearch(String question) {
-        String lowerQuestion = question.toLowerCase();
+        // Получаем историю диалога
+        List<Map<String, String>> history = conversationService.getHistory(userId);
         
-        // Ключевые слова, которые указывают на необходимость поиска
-        String[] searchKeywords = {
-            "текст песни", "текст", "lyrics", "песня",
-            "актуальн", "новост", "курс", "цена", "стоимость",
-            "погода", "weather", "сегодня", "сейчас",
-            "найди", "поиск", "ищи", "найти"
+        // Выбираем провайдера и отправляем запрос
+        return switch (provider.toLowerCase()) {
+            case "groq" -> getAnswerFromGroq(history, userId);
+            case "openai" -> getAnswerFromOpenAI(history, userId);
+            case "huggingface" -> getAnswerFromHuggingFace(question, userId);
+            case "gemini" -> getAnswerFromGemini(question, userId);
+            default -> Mono.error(new IllegalArgumentException("Неподдерживаемый провайдер: " + provider));
         };
-        
-        for (String keyword : searchKeywords) {
-            if (lowerQuestion.contains(keyword)) {
-                return true;
-            }
-        }
-        
-        return false;
     }
     
     private Mono<String> getAnswerFromGroq(List<Map<String, String>> history, Long userId) {
