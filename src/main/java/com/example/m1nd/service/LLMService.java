@@ -27,6 +27,7 @@ public class LLMService {
     private final WebClient.Builder webClientBuilder;
     private final ConversationService conversationService;
     private final PromptService promptService;
+    private final com.example.m1nd.service.tools.ToolService toolService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     @Value("${llm.api.provider}")
@@ -83,14 +84,171 @@ public class LLMService {
         // Получаем историю диалога
         List<Map<String, String>> history = conversationService.getHistory(userId);
         
-        // Выбираем провайдера и отправляем запрос
+        // Выбираем провайдера и отправляем запрос с поддержкой function calling
         return switch (provider.toLowerCase()) {
-            case "groq" -> getAnswerFromGroq(history, userId);
-            case "openai" -> getAnswerFromOpenAI(history, userId);
+            case "groq" -> getAnswerWithFunctionCalling(history, userId, "groq");
+            case "openai" -> getAnswerWithFunctionCalling(history, userId, "openai");
             case "huggingface" -> getAnswerFromHuggingFace(question, userId);
             case "gemini" -> getAnswerFromGemini(question, userId);
             default -> Mono.error(new IllegalArgumentException("Неподдерживаемый провайдер: " + provider));
         };
+    }
+    
+    /**
+     * Получает ответ с поддержкой Function Calling (цикл обработки tool_calls)
+     */
+    private Mono<String> getAnswerWithFunctionCalling(List<Map<String, String>> history, Long userId, String providerType) {
+        return getAnswerWithTools(history, userId, providerType, 0, 5); // максимум 5 итераций
+    }
+    
+    /**
+     * Рекурсивный метод для обработки function calling с циклом
+     */
+    private Mono<String> getAnswerWithTools(List<Map<String, String>> history, Long userId, String providerType, int iteration, int maxIterations) {
+        if (iteration >= maxIterations) {
+            log.warn("Достигнут максимум итераций function calling");
+            return Mono.just("Извините, не удалось получить ответ после нескольких попыток использования инструментов.");
+        }
+        
+        // Получаем список инструментов для LLM
+        List<Map<String, Object>> tools = toolService.getToolsForLLM();
+        
+        // Отправляем запрос с инструментами
+        Mono<String> responseMono = switch (providerType) {
+            case "groq" -> sendRequestWithTools(history, tools, userId, providerType);
+            case "openai" -> sendRequestWithTools(history, tools, userId, providerType);
+            default -> Mono.error(new IllegalArgumentException("Неподдерживаемый провайдер для function calling: " + providerType));
+        };
+        
+        return responseMono.flatMap(response -> {
+            try {
+                JsonNode responseJson = objectMapper.readTree(response);
+                JsonNode choices = responseJson.get("choices");
+                if (choices == null || !choices.isArray() || choices.size() == 0) {
+                    return Mono.just("Ошибка: пустой ответ от API");
+                }
+                
+                JsonNode message = choices.get(0).get("message");
+                if (message == null) {
+                    return Mono.just("Ошибка: некорректная структура ответа");
+                }
+                
+                // Проверяем, есть ли tool_calls
+                JsonNode toolCalls = message.get("tool_calls");
+                if (toolCalls != null && toolCalls.isArray() && toolCalls.size() > 0) {
+                    log.info("Обнаружены tool_calls, выполняю инструменты...");
+                    
+                    // Добавляем сообщение ассистента с tool_calls в историю
+                    // Для Groq/OpenAI нужно передавать сообщение с tool_calls в формате JSON
+                    Map<String, Object> assistantMessage = new HashMap<>();
+                    assistantMessage.put("role", "assistant");
+                    if (message.has("content") && !message.get("content").isNull()) {
+                        assistantMessage.put("content", message.get("content").asText());
+                    }
+                    assistantMessage.put("tool_calls", toolCalls);
+                    
+                    // Добавляем в историю как Map<String, Object> для правильной сериализации
+                    Map<String, String> assistantMsg = new HashMap<>();
+                    assistantMsg.put("role", "assistant");
+                    if (message.has("content") && !message.get("content").isNull()) {
+                        assistantMsg.put("content", message.get("content").asText());
+                    }
+                    // tool_calls будет добавлен при конвертации для API
+                    history.add(assistantMsg);
+                    
+                    // Выполняем все инструменты
+                    for (JsonNode toolCall : toolCalls) {
+                        String toolName = toolCall.get("function").get("name").asText();
+                        String toolCallId = toolCall.get("id").asText();
+                        JsonNode arguments = toolCall.get("function").get("arguments");
+                        
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> params = (Map<String, Object>) objectMapper.readValue(arguments.asText(), Map.class);
+                        String result = toolService.executeTool(toolName, params);
+                        
+                        // Добавляем результат инструмента в историю
+                        Map<String, String> toolMessage = new HashMap<>();
+                        toolMessage.put("role", "tool");
+                        toolMessage.put("tool_call_id", toolCallId);
+                        toolMessage.put("name", toolName);
+                        toolMessage.put("content", result);
+                        history.add(toolMessage);
+                    }
+                    
+                    // Повторяем запрос с результатами инструментов
+                    return getAnswerWithTools(history, userId, providerType, iteration + 1, maxIterations);
+                } else {
+                    // Нет tool_calls, возвращаем финальный ответ
+                    String answer = message.get("content").asText();
+                    if (answer == null || answer.isEmpty()) {
+                        return Mono.just("Извините, не удалось получить ответ.");
+                    }
+                    conversationService.addMessage(userId, "assistant", answer);
+                    return Mono.just(answer);
+                }
+            } catch (Exception e) {
+                log.error("Ошибка при обработке ответа с function calling", e);
+                return Mono.just("Ошибка при обработке ответа: " + e.getMessage());
+            }
+        });
+    }
+    
+    /**
+     * Отправляет запрос к API с инструментами
+     */
+    private Mono<String> sendRequestWithTools(List<Map<String, String>> history, List<Map<String, Object>> tools, Long userId, String providerType) {
+        WebClient webClient = webClientBuilder.build();
+        Map<String, Object> requestBody = new HashMap<>();
+        
+        if ("groq".equals(providerType)) {
+            requestBody.put("model", groqModel);
+            requestBody.put("messages", convertHistoryToMessages(history));
+            requestBody.put("temperature", groqTemperature);
+            requestBody.put("max_tokens", groqMaxTokens);
+            if (!tools.isEmpty()) {
+                requestBody.put("tools", tools);
+                requestBody.put("tool_choice", "auto");
+            }
+            
+            return webClient.post()
+                .uri(groqUrl)
+                .header("Authorization", "Bearer " + groqApiKey)
+                .header("Content-Type", "application/json")
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(Duration.ofSeconds(30))
+                .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
+                    .filter(throwable -> {
+                        if (throwable instanceof WebClientResponseException) {
+                            WebClientResponseException ex = (WebClientResponseException) throwable;
+                            int status = ex.getStatusCode().value();
+                            return status == 429 || (status >= 500 && status < 600);
+                        }
+                        return throwable instanceof TimeoutException;
+                    })
+                );
+        } else if ("openai".equals(providerType)) {
+            requestBody.put("model", openaiModel);
+            requestBody.put("messages", convertHistoryToMessages(history));
+            requestBody.put("temperature", 0.7);
+            requestBody.put("max_tokens", 2000);
+            if (!tools.isEmpty()) {
+                requestBody.put("tools", tools);
+                requestBody.put("tool_choice", "auto");
+            }
+            
+            return webClient.post()
+                .uri(openaiUrl)
+                .header("Authorization", "Bearer " + openaiApiKey)
+                .header("Content-Type", "application/json")
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(Duration.ofSeconds(30));
+        }
+        
+        return Mono.error(new IllegalArgumentException("Неподдерживаемый провайдер: " + providerType));
     }
     
     private Mono<String> getAnswerFromGroq(List<Map<String, String>> history, Long userId) {
@@ -263,8 +421,25 @@ public class LLMService {
             .doOnError(error -> log.error("Ошибка при запросе к Gemini API", error));
     }
     
-    private List<Map<String, String>> convertHistoryToMessages(List<Map<String, String>> history) {
-        return new ArrayList<>(history);
+    /**
+     * Конвертирует историю диалога в формат для API
+     * Поддерживает tool_calls и результаты инструментов
+     */
+    private List<Map<String, Object>> convertHistoryToMessages(List<Map<String, String>> history) {
+        List<Map<String, Object>> messages = new ArrayList<>();
+        
+        for (Map<String, String> msg : history) {
+            Map<String, Object> message = new HashMap<>(msg);
+            
+            // Если это сообщение tool, добавляем tool_call_id
+            if ("tool".equals(msg.get("role")) && msg.containsKey("tool_call_id")) {
+                message.put("tool_call_id", msg.get("tool_call_id"));
+            }
+            
+            messages.add(message);
+        }
+        
+        return messages;
     }
 }
 
