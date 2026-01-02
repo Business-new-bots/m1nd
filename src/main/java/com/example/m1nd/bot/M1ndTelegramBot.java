@@ -3,14 +3,17 @@ package com.example.m1nd.bot;
 import com.example.m1nd.config.TelegramBotConfig;
 import com.example.m1nd.service.LLMService;
 import com.example.m1nd.service.UserService;
+import com.example.m1nd.service.WorkingApiService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import reactor.core.publisher.Mono;
 
 import jakarta.annotation.PostConstruct;
 
@@ -23,6 +26,10 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private final TelegramBotConfig botConfig;
     private final UserService userService;
     private final LLMService llmService;
+    private final WorkingApiService workingApiService;
+    
+    @Value("${llm.api.use-llm-service:true}")
+    private boolean useLlmService;
     
     @Override
     public String getBotUsername() {
@@ -102,31 +109,37 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             logger.error("Ошибка при отправке сообщения", e);
         }
         
-        // Получаем ответ от LLM
-        llmService.getAnswer(messageText, userId)
-            .subscribe(
-                answer -> {
-                    // Логируем длину полученного ответа
-                    logger.info("Получен ответ от LLM, длина: {} символов", answer.length());
-                    
-                    // Разбиваем длинный ответ на части и отправляем
-                    sendLongMessage(chatId, answer);
-                    userService.incrementQuestionsCount(userId);
-                    logger.info("Ответ отправлен пользователю {}: {}", userId, answer.substring(0, Math.min(50, answer.length())));
-                },
-                error -> {
-                    logger.error("Ошибка при получении ответа от LLM", error);
-                    SendMessage errorMessage = new SendMessage();
-                    errorMessage.setChatId(chatId.toString());
-                    errorMessage.setText("Извините, произошла ошибка. Попробуйте позже.");
-                    
-                    try {
-                        execute(errorMessage);
-                    } catch (TelegramApiException e) {
-                        logger.error("Ошибка при отправке сообщения об ошибке", e);
-                    }
+        // Выбираем сервис в зависимости от настройки
+        Mono<String> answerMono;
+        if (useLlmService) {
+            logger.info("Используется LLMService для пользователя {}", userId);
+            answerMono = llmService.getAnswer(messageText, userId);
+        } else {
+            logger.info("Используется WorkingApiService для пользователя {}", userId);
+            answerMono = workingApiService.getAnswer(messageText);
+        }
+        
+        // Получаем ответ от выбранного сервиса
+        answerMono.subscribe(
+            answer -> {
+                logger.info("Получен ответ, длина: {} символов", answer.length());
+                sendLongMessage(chatId, answer);
+                userService.incrementQuestionsCount(userId);
+                logger.info("Ответ отправлен пользователю {}: {}", userId, answer.substring(0, Math.min(50, answer.length())));
+            },
+            error -> {
+                logger.error("Ошибка при получении ответа", error);
+                SendMessage errorMessage = new SendMessage();
+                errorMessage.setChatId(chatId.toString());
+                errorMessage.setText("Извините, произошла ошибка. Попробуйте позже.");
+                
+                try {
+                    execute(errorMessage);
+                } catch (TelegramApiException e) {
+                    logger.error("Ошибка при отправке сообщения об ошибке", e);
                 }
-            );
+            }
+        );
     }
     
     /**
