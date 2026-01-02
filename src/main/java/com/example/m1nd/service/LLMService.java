@@ -48,6 +48,21 @@ public class LLMService {
     @Value("${llm.api.groq.max-tokens:500}")
     private Integer groqMaxTokens;
     
+    @Value("${llm.api.deepseek.api-key:}")
+    private String deepseekApiKey;
+    
+    @Value("${llm.api.deepseek.model:deepseek-chat}")
+    private String deepseekModel;
+    
+    @Value("${llm.api.deepseek.url:https://api.deepseek.com/v1/chat/completions}")
+    private String deepseekUrl;
+    
+    @Value("${llm.api.deepseek.temperature:0.7}")
+    private Double deepseekTemperature;
+    
+    @Value("${llm.api.deepseek.max-tokens:2000}")
+    private Integer deepseekMaxTokens;
+    
     @Value("${llm.api.huggingface.api-key:}")
     private String huggingfaceApiKey;
     
@@ -84,14 +99,17 @@ public class LLMService {
         // Получаем историю диалога
         List<Map<String, String>> history = conversationService.getHistory(userId);
         
-        // Выбираем провайдера и отправляем запрос с поддержкой function calling
-        return switch (provider.toLowerCase()) {
-            case "groq" -> getAnswerWithFunctionCalling(history, userId, "groq");
-            case "openai" -> getAnswerWithFunctionCalling(history, userId, "openai");
-            case "huggingface" -> getAnswerFromHuggingFace(question, userId);
-            case "gemini" -> getAnswerFromGemini(question, userId);
-            default -> Mono.error(new IllegalArgumentException("Неподдерживаемый провайдер: " + provider));
-        };
+        // Сначала пробуем DeepSeek, если ошибка - fallback на Groq
+        return getAnswerWithFunctionCalling(history, userId, "deepseek")
+            .onErrorResume(error -> {
+                log.warn("DeepSeek не ответил, пробуем Groq как fallback. Ошибка: {}", error.getMessage());
+                return getAnswerWithFunctionCalling(history, userId, "groq")
+                    .onErrorResume(groqError -> {
+                        log.error("И DeepSeek, и Groq не ответили. Последняя ошибка: {}", groqError.getMessage());
+                        // Если оба провайдера не работают, возвращаем ошибку
+                        return Mono.error(new RuntimeException("Не удалось получить ответ ни от DeepSeek, ни от Groq", groqError));
+                    });
+            });
     }
     
     /**
@@ -228,6 +246,48 @@ public class LLMService {
                         return throwable instanceof TimeoutException;
                     })
                 );
+        } else if ("deepseek".equals(providerType)) {
+            requestBody.put("model", deepseekModel);
+            requestBody.put("messages", convertHistoryToMessages(history));
+            requestBody.put("temperature", deepseekTemperature);
+            requestBody.put("max_tokens", deepseekMaxTokens);
+            if (!tools.isEmpty()) {
+                requestBody.put("tools", tools);
+                requestBody.put("tool_choice", "auto");
+            }
+            
+            return webClient.post()
+                .uri(deepseekUrl)
+                .header("Authorization", "Bearer " + deepseekApiKey)
+                .header("Content-Type", "application/json")
+                .bodyValue(requestBody)
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(Duration.ofSeconds(30))
+                .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
+                    .filter(throwable -> {
+                        if (throwable instanceof WebClientResponseException) {
+                            WebClientResponseException ex = (WebClientResponseException) throwable;
+                            int status = ex.getStatusCode().value();
+                            return status == 429 || (status >= 500 && status < 600);
+                        }
+                        return throwable instanceof TimeoutException;
+                    })
+                    .doBeforeRetry(retrySignal -> 
+                        log.warn("Повторная попытка запроса к DeepSeek API (попытка {})", 
+                            retrySignal.totalRetries() + 1))
+                )
+                .doOnError(error -> {
+                    if (error instanceof WebClientResponseException) {
+                        WebClientResponseException ex = (WebClientResponseException) error;
+                        log.error("Ошибка HTTP при запросе к DeepSeek API. Status: {}, Body: {}", 
+                            ex.getStatusCode(), ex.getResponseBodyAsString());
+                    } else if (error instanceof TimeoutException) {
+                        log.error("Таймаут при запросе к DeepSeek API (превышено 30 секунд)");
+                    } else {
+                        log.error("Ошибка при запросе к DeepSeek API", error);
+                    }
+                });
         } else if ("openai".equals(providerType)) {
             requestBody.put("model", openaiModel);
             requestBody.put("messages", convertHistoryToMessages(history));
