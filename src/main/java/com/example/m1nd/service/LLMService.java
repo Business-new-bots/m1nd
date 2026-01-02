@@ -128,14 +128,15 @@ public class LLMService {
             return Mono.just("Извините, не удалось получить ответ после нескольких попыток использования инструментов.");
         }
         
-        // Получаем список инструментов для LLM
-        List<Map<String, Object>> tools = toolService.getToolsForLLM();
+        // Инструменты отключены - отправляем запрос без tools
+        List<Map<String, Object>> tools = new ArrayList<>(); // Пустой список инструментов
         
-        // Отправляем запрос с инструментами
+        // Отправляем запрос без инструментов
         Mono<String> responseMono = switch (providerType) {
             case "groq" -> sendRequestWithTools(history, tools, userId, providerType);
+            case "deepseek" -> sendRequestWithTools(history, tools, userId, providerType);
             case "openai" -> sendRequestWithTools(history, tools, userId, providerType);
-            default -> Mono.error(new IllegalArgumentException("Неподдерживаемый провайдер для function calling: " + providerType));
+            default -> Mono.error(new IllegalArgumentException("Неподдерживаемый провайдер: " + providerType));
         };
         
         return responseMono.flatMap(response -> {
