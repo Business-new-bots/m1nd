@@ -43,3 +43,9 @@ app:
   data:
     users-file: users.json
     prompt-file: prompt.txt
+
+search:
+  yandex:
+    api-key: ${SEARCH_YANDEX_API_KEY:}
+    user: ${SEARCH_YANDEX_USER:}
+    url: https://yandex.com/search/xml

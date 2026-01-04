@@ -100,9 +100,11 @@ public class LLMService {
         List<Map<String, String>> history = conversationService.getHistory(userId);
         
         // Сначала пробуем DeepSeek, если ошибка - fallback на Groq
+        log.info("Начинаем запрос к LLM для пользователя {}. Провайдер: DeepSeek (primary)", userId);
         return getAnswerWithFunctionCalling(history, userId, "deepseek")
             .onErrorResume(error -> {
                 log.warn("DeepSeek не ответил, пробуем Groq как fallback. Ошибка: {}", error.getMessage());
+                log.info("Переключаемся на провайдер: Groq (fallback) для пользователя {}", userId);
                 return getAnswerWithFunctionCalling(history, userId, "groq")
                     .onErrorResume(groqError -> {
                         log.error("И DeepSeek, и Groq не ответили. Последняя ошибка: {}", groqError.getMessage());
@@ -128,10 +130,10 @@ public class LLMService {
             return Mono.just("Извините, не удалось получить ответ после нескольких попыток использования инструментов.");
         }
         
-        // Инструменты отключены - отправляем запрос без tools
-        List<Map<String, Object>> tools = new ArrayList<>(); // Пустой список инструментов
+        // Получаем список инструментов для LLM
+        List<Map<String, Object>> tools = toolService.getToolsForLLM();
         
-        // Отправляем запрос без инструментов
+        // Отправляем запрос с инструментами
         Mono<String> responseMono = switch (providerType) {
             case "groq" -> sendRequestWithTools(history, tools, userId, providerType);
             case "deepseek" -> sendRequestWithTools(history, tools, userId, providerType);
@@ -141,14 +143,17 @@ public class LLMService {
         
         return responseMono.flatMap(response -> {
             try {
+                log.debug("Получен ответ от {} API (длина: {} символов)", providerType, response.length());
                 JsonNode responseJson = objectMapper.readTree(response);
                 JsonNode choices = responseJson.get("choices");
                 if (choices == null || !choices.isArray() || choices.size() == 0) {
+                    log.warn("Пустой ответ от {} API", providerType);
                     return Mono.just("Ошибка: пустой ответ от API");
                 }
                 
                 JsonNode message = choices.get(0).get("message");
                 if (message == null) {
+                    log.warn("Некорректная структура ответа от {} API", providerType);
                     return Mono.just("Ошибка: некорректная структура ответа");
                 }
                 
@@ -200,8 +205,10 @@ public class LLMService {
                     // Нет tool_calls, возвращаем финальный ответ
                     String answer = message.get("content").asText();
                     if (answer == null || answer.isEmpty()) {
+                        log.warn("Пустое содержимое ответа от {} API", providerType);
                         return Mono.just("Извините, не удалось получить ответ.");
                     }
+                    log.info("Успешно получен ответ от {} API. Длина ответа: {} символов", providerType, answer.length());
                     conversationService.addMessage(userId, "assistant", answer);
                     return Mono.just(answer);
                 }
@@ -220,6 +227,7 @@ public class LLMService {
         Map<String, Object> requestBody = new HashMap<>();
         
         if ("groq".equals(providerType)) {
+            log.info("Отправляем запрос к Groq API. URL: {}, Модель: {}", groqUrl, groqModel);
             requestBody.put("model", groqModel);
             requestBody.put("messages", convertHistoryToMessages(history));
             requestBody.put("temperature", groqTemperature);
@@ -227,6 +235,7 @@ public class LLMService {
             if (!tools.isEmpty()) {
                 requestBody.put("tools", tools);
                 requestBody.put("tool_choice", "auto");
+                log.debug("Запрос к Groq включает {} инструментов", tools.size());
             }
             
             return webClient.post()
@@ -248,6 +257,7 @@ public class LLMService {
                     })
                 );
         } else if ("deepseek".equals(providerType)) {
+            log.info("Отправляем запрос к DeepSeek API. URL: {}, Модель: {}", deepseekUrl, deepseekModel);
             requestBody.put("model", deepseekModel);
             requestBody.put("messages", convertHistoryToMessages(history));
             requestBody.put("temperature", deepseekTemperature);
@@ -255,6 +265,7 @@ public class LLMService {
             if (!tools.isEmpty()) {
                 requestBody.put("tools", tools);
                 requestBody.put("tool_choice", "auto");
+                log.debug("Запрос к DeepSeek включает {} инструментов", tools.size());
             }
             
             return webClient.post()
@@ -290,6 +301,7 @@ public class LLMService {
                     }
                 });
         } else if ("openai".equals(providerType)) {
+            log.info("Отправляем запрос к OpenAI API (ChatGPT). URL: {}, Модель: {}", openaiUrl, openaiModel);
             requestBody.put("model", openaiModel);
             requestBody.put("messages", convertHistoryToMessages(history));
             requestBody.put("temperature", 0.7);
@@ -297,6 +309,7 @@ public class LLMService {
             if (!tools.isEmpty()) {
                 requestBody.put("tools", tools);
                 requestBody.put("tool_choice", "auto");
+                log.debug("Запрос к OpenAI включает {} инструментов", tools.size());
             }
             
             return webClient.post()
