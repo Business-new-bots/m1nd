@@ -87,6 +87,24 @@ public class LLMService {
     @Value("${llm.api.openai.url:}")
     private String openaiUrl;
     
+    @Value("${llm.api.yandexgpt.api-key:}")
+    private String yandexgptApiKey;
+    
+    @Value("${llm.api.yandexgpt.folder-id:}")
+    private String yandexgptFolderId;
+    
+    @Value("${llm.api.yandexgpt.url:https://llm.api.cloud.yandex.net/foundationModels/v1/completion}")
+    private String yandexgptUrl;
+    
+    @Value("${llm.api.yandexgpt.model:yandexgpt}")
+    private String yandexgptModel;
+    
+    @Value("${llm.api.yandexgpt.temperature:0.7}")
+    private Double yandexgptTemperature;
+    
+    @Value("${llm.api.yandexgpt.max-tokens:2000}")
+    private Integer yandexgptMaxTokens;
+    
     public Mono<String> getAnswer(String question, Long userId) {
         // Получаем промпт из сервиса
         String systemPrompt = promptService.getPrompt();
@@ -99,6 +117,11 @@ public class LLMService {
         // Получаем историю диалога
         List<Map<String, String>> history = conversationService.getHistory(userId);
         
+        // ВРЕМЕННО: Используем только YandexGPT (остальные провайдеры закомментированы)
+        log.info("Начинаем запрос к LLM для пользователя {}. Провайдер: YandexGPT (временно единственный)", userId);
+        return sendRequestToYandexGPT(history, userId);
+        
+        /* ВРЕМЕННО ЗАКОММЕНТИРОВАНО - вернуть при необходимости
         // Сначала пробуем DeepSeek, если ошибка - fallback на Groq
         log.info("Начинаем запрос к LLM для пользователя {}. Провайдер: DeepSeek (primary)", userId);
         return getAnswerWithFunctionCalling(history, userId, "deepseek")
@@ -112,6 +135,7 @@ public class LLMService {
                         return Mono.error(new RuntimeException("Не удалось получить ответ ни от DeepSeek, ни от Groq", groqError));
                     });
             });
+        */
     }
     
     /**
@@ -514,6 +538,173 @@ public class LLMService {
         }
         
         return messages;
+    }
+    
+    /**
+     * ВРЕМЕННО: Отправляет запрос к YandexGPT API (без поддержки function calling)
+     */
+    private Mono<String> sendRequestToYandexGPT(List<Map<String, String>> history, Long userId) {
+        WebClient webClient = webClientBuilder.build();
+        
+        // Проверяем наличие обязательных параметров
+        if (yandexgptApiKey == null || yandexgptApiKey.isEmpty()) {
+            log.error("YandexGPT API ключ не настроен");
+            return Mono.error(new RuntimeException("YandexGPT API ключ не настроен. Установите переменную окружения YANDEXGPT_API_KEY"));
+        }
+        if (yandexgptFolderId == null || yandexgptFolderId.isEmpty()) {
+            log.error("YandexGPT Folder ID не настроен");
+            return Mono.error(new RuntimeException("YandexGPT Folder ID не настроен. Установите переменную окружения YANDEXGPT_FOLDER_ID"));
+        }
+        
+        // Формируем modelUri
+        String modelUri = String.format("gpt://%s/%s/latest", yandexgptFolderId, yandexgptModel);
+        
+        // Конвертируем историю в формат YandexGPT (убираем tool сообщения, так как не поддерживаются)
+        List<Map<String, Object>> yandexMessages = convertHistoryToYandexGPTFormat(history);
+        
+        // Формируем тело запроса
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("modelUri", modelUri);
+        requestBody.put("completionOptions", Map.of(
+            "stream", false,
+            "temperature", yandexgptTemperature,
+            "maxTokens", String.valueOf(yandexgptMaxTokens)
+        ));
+        requestBody.put("messages", yandexMessages);
+        
+        log.info("Отправляем запрос к YandexGPT API. URL: {}, Model: {}", yandexgptUrl, modelUri);
+        log.debug("Запрос содержит {} сообщений", yandexMessages.size());
+        
+        return webClient.post()
+            .uri(yandexgptUrl)
+            .header("Authorization", "Api-Key " + yandexgptApiKey)
+            .header("Content-Type", "application/json")
+            .bodyValue(requestBody)
+            .retrieve()
+            .bodyToMono(String.class)
+            .timeout(Duration.ofSeconds(30))
+            .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
+                .filter(throwable -> {
+                    if (throwable instanceof WebClientResponseException) {
+                        WebClientResponseException ex = (WebClientResponseException) throwable;
+                        int status = ex.getStatusCode().value();
+                        return status == 429 || (status >= 500 && status < 600);
+                    }
+                    return throwable instanceof TimeoutException;
+                })
+                .doBeforeRetry(retrySignal -> 
+                    log.warn("Повторная попытка запроса к YandexGPT API (попытка {})", 
+                        retrySignal.totalRetries() + 1))
+            )
+            .flatMap(response -> {
+                try {
+                    return parseYandexGPTResponse(response, userId);
+                } catch (Exception e) {
+                    log.error("Ошибка при обработке ответа от YandexGPT API", e);
+                    return Mono.just("Ошибка при обработке ответа: " + e.getMessage());
+                }
+            })
+            .doOnError(error -> {
+                if (error instanceof WebClientResponseException) {
+                    WebClientResponseException ex = (WebClientResponseException) error;
+                    log.error("Ошибка HTTP при запросе к YandexGPT API. Status: {}, Body: {}", 
+                        ex.getStatusCode(), ex.getResponseBodyAsString());
+                } else if (error instanceof TimeoutException) {
+                    log.error("Таймаут при запросе к YandexGPT API (превышено 30 секунд)");
+                } else {
+                    log.error("Ошибка при запросе к YandexGPT API", error);
+                }
+            });
+    }
+    
+    /**
+     * Конвертирует историю диалога в формат YandexGPT
+     * YandexGPT использует формат: { "role": "...", "text": "..." }
+     * Убираем сообщения с role="tool", так как YandexGPT их не поддерживает
+     */
+    private List<Map<String, Object>> convertHistoryToYandexGPTFormat(List<Map<String, String>> history) {
+        List<Map<String, Object>> messages = new ArrayList<>();
+        
+        for (Map<String, String> msg : history) {
+            String role = msg.get("role");
+            String content = msg.get("content");
+            
+            // YandexGPT не поддерживает role "tool", пропускаем такие сообщения
+            if ("tool".equals(role)) {
+                log.debug("Пропускаем tool сообщение для YandexGPT (не поддерживается)");
+                continue;
+            }
+            
+            // Маппинг ролей: system/user/assistant остаются как есть
+            // В YandexGPT используется "text" вместо "content"
+            Map<String, Object> message = new HashMap<>();
+            message.put("role", role);
+            message.put("text", content != null ? content : "");
+            messages.add(message);
+        }
+        
+        return messages;
+    }
+    
+    /**
+     * Парсит ответ от YandexGPT API
+     * Формат ответа: { "result": { "alternatives": [{ "message": { "role": "assistant", "text": "..." } }] } }
+     */
+    private Mono<String> parseYandexGPTResponse(String responseBody, Long userId) {
+        try {
+            log.debug("Получен ответ от YandexGPT API (длина: {} символов)", responseBody.length());
+            JsonNode responseJson = objectMapper.readTree(responseBody);
+            
+            // Проверяем наличие ошибки
+            if (responseJson.has("error")) {
+                JsonNode error = responseJson.get("error");
+                String errorMessage = error.has("message") ? error.get("message").asText() : "Неизвестная ошибка";
+                String errorCode = error.has("code") ? error.get("code").asText() : "UNKNOWN";
+                log.error("YandexGPT API вернул ошибку. Code: {}, Message: {}", errorCode, errorMessage);
+                return Mono.error(new RuntimeException("YandexGPT API Error [" + errorCode + "]: " + errorMessage));
+            }
+            
+            JsonNode result = responseJson.get("result");
+            if (result == null) {
+                log.warn("Пустой ответ от YandexGPT API. Полный ответ: {}", responseBody);
+                return Mono.just("Ошибка: пустой ответ от API");
+            }
+            
+            JsonNode alternatives = result.get("alternatives");
+            if (alternatives == null || !alternatives.isArray() || alternatives.size() == 0) {
+                log.warn("Нет альтернатив в ответе от YandexGPT API. Полный ответ: {}", responseBody);
+                return Mono.just("Ошибка: некорректная структура ответа");
+            }
+            
+            JsonNode firstAlternative = alternatives.get(0);
+            JsonNode message = firstAlternative.get("message");
+            if (message == null) {
+                log.warn("Нет сообщения в ответе от YandexGPT API. Полный ответ: {}", responseBody);
+                return Mono.just("Ошибка: некорректная структура ответа");
+            }
+            
+            JsonNode textNode = message.get("text");
+            if (textNode == null || textNode.isNull()) {
+                log.warn("Пустое содержимое ответа от YandexGPT API");
+                return Mono.just("Извините, не удалось получить ответ.");
+            }
+            
+            String answer = textNode.asText();
+            if (answer == null || answer.isEmpty()) {
+                log.warn("Пустое содержимое ответа от YandexGPT API");
+                return Mono.just("Извините, не удалось получить ответ.");
+            }
+            
+            log.info("Успешно получен ответ от YandexGPT API. Длина ответа: {} символов", answer.length());
+            conversationService.addMessage(userId, "assistant", answer);
+            return Mono.just(answer);
+        } catch (JsonProcessingException e) {
+            log.error("Ошибка при парсинге JSON ответа от YandexGPT API. Ответ: {}", responseBody, e);
+            return Mono.just("Ошибка при обработке ответа от API: " + e.getMessage());
+        } catch (Exception e) {
+            log.error("Неожиданная ошибка при парсинге ответа от YandexGPT API", e);
+            return Mono.just("Ошибка при обработке ответа: " + e.getMessage());
+        }
     }
 }
 

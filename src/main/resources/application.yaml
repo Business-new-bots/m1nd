@@ -38,6 +38,13 @@ llm:
       api-key: ${OPENAI_API_KEY:}
       model: gpt-3.5-turbo
       url: https://api.openai.com/v1/chat/completions
+    yandexgpt:
+      api-key: ${YANDEXGPT_API_KEY:}
+      folder-id: ${YANDEXGPT_FOLDER_ID:}
+      url: https://llm.api.cloud.yandex.net/foundationModels/v1/completion
+      model: yandexgpt  # yandexgpt или yandexgpt-lite
+      temperature: 0.7
+      max-tokens: 2000
 
 app:
   data:
