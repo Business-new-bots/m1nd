@@ -556,6 +556,14 @@ public class LLMService {
             return Mono.error(new RuntimeException("YandexGPT Folder ID не настроен. Установите переменную окружения YANDEXGPT_FOLDER_ID"));
         }
         
+        // Логирование для отладки
+        String apiKeyPreview = yandexgptApiKey != null && yandexgptApiKey.length() > 8 
+            ? yandexgptApiKey.substring(0, 4) + "..." + yandexgptApiKey.substring(yandexgptApiKey.length() - 4)
+            : "null";
+        log.info("Используется API-ключ: {}", apiKeyPreview);
+        log.info("Folder ID: {}", yandexgptFolderId);
+        log.info("Модель: {}", yandexgptModel);
+        
         // Формируем modelUri
         String modelUri = String.format("gpt://%s/%s/latest", yandexgptFolderId, yandexgptModel);
         
