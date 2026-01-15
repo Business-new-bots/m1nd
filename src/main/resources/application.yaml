@@ -41,10 +41,12 @@ llm:
     yandexgpt:
       api-key: ${YANDEXGPT_API_KEY:}
       folder-id: ${YANDEXGPT_FOLDER_ID:}
-      url: https://llm.api.cloud.yandex.net/foundationModels/v1/completion
-      model: yandexgpt-4-lite
-      temperature: 0.7
-      max-tokens: 2000
+      agent-id: ${YANDEXGPT_AGENT_ID:fvtb25q1stijsl40gd54}
+      project: ${YANDEXGPT_PROJECT:b1gbedbc2gr62pqibolh}
+      url: https://rest-assistant.api.cloud.yandex.net/v1/responses/create
+      model: yandexgpt-4-lite  # Не используется для агента, оставлено для совместимости
+      temperature: 0.3  # Из настроек агента
+      max-tokens: 6000  # Из настроек агента
 
 app:
   data:

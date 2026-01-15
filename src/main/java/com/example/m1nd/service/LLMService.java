@@ -93,6 +93,12 @@ public class LLMService {
     @Value("${llm.api.yandexgpt.folder-id:}")
     private String yandexgptFolderId;
     
+    @Value("${llm.api.yandexgpt.agent-id:}")
+    private String yandexgptAgentId;
+    
+    @Value("${llm.api.yandexgpt.project:}")
+    private String yandexgptProject;
+    
     @Value("${llm.api.yandexgpt.url:https://llm.api.cloud.yandex.net/foundationModels/v1/completion}")
     private String yandexgptUrl;
     
@@ -106,10 +112,8 @@ public class LLMService {
     private Integer yandexgptMaxTokens;
     
     public Mono<String> getAnswer(String question, Long userId) {
-        // Получаем промпт из сервиса
-        String systemPrompt = promptService.getPrompt();
-        // Инициализируем историю диалога, если её нет
-        conversationService.initializeHistory(userId, systemPrompt);
+        // Промпт теперь в агенте, но инициализируем историю для совместимости
+        conversationService.initializeHistory(userId, "");
         
         // Добавляем вопрос пользователя в историю
         conversationService.addMessage(userId, "user", question);
@@ -117,8 +121,8 @@ public class LLMService {
         // Получаем историю диалога
         List<Map<String, String>> history = conversationService.getHistory(userId);
         
-        // ВРЕМЕННО: Используем только YandexGPT (остальные провайдеры закомментированы)
-        log.info("Начинаем запрос к LLM для пользователя {}. Провайдер: YandexGPT (временно единственный)", userId);
+        // ВРЕМЕННО: Используем только YandexGPT Agent (остальные провайдеры закомментированы)
+        log.info("Начинаем запрос к LLM для пользователя {}. Провайдер: YandexGPT Agent (временно единственный)", userId);
         return sendRequestToYandexGPT(history, userId);
         
         /* ВРЕМЕННО ЗАКОММЕНТИРОВАНО - вернуть при необходимости
@@ -541,7 +545,7 @@ public class LLMService {
     }
     
     /**
-     * ВРЕМЕННО: Отправляет запрос к YandexGPT API (без поддержки function calling)
+     * Отправляет запрос к YandexGPT Agent API (с поддержкой WebSearch)
      */
     private Mono<String> sendRequestToYandexGPT(List<Map<String, String>> history, Long userId) {
         WebClient webClient = webClientBuilder.build();
@@ -551,9 +555,9 @@ public class LLMService {
             log.error("YandexGPT API ключ не настроен");
             return Mono.error(new RuntimeException("YandexGPT API ключ не настроен. Установите переменную окружения YANDEXGPT_API_KEY"));
         }
-        if (yandexgptFolderId == null || yandexgptFolderId.isEmpty()) {
-            log.error("YandexGPT Folder ID не настроен");
-            return Mono.error(new RuntimeException("YandexGPT Folder ID не настроен. Установите переменную окружения YANDEXGPT_FOLDER_ID"));
+        if (yandexgptAgentId == null || yandexgptAgentId.isEmpty()) {
+            log.error("YandexGPT Agent ID не настроен");
+            return Mono.error(new RuntimeException("YandexGPT Agent ID не настроен. Установите переменную окружения YANDEXGPT_AGENT_ID"));
         }
         
         // Логирование для отладки
@@ -561,34 +565,38 @@ public class LLMService {
             ? yandexgptApiKey.substring(0, 4) + "..." + yandexgptApiKey.substring(yandexgptApiKey.length() - 4)
             : "null";
         log.info("Используется API-ключ: {}", apiKeyPreview);
-        log.info("Folder ID: {}", yandexgptFolderId);
-        log.info("Модель: {}", yandexgptModel);
+        log.info("Agent ID: {}", yandexgptAgentId);
+        log.info("Project: {}", yandexgptProject);
         
-        // Логирование ожидаемых ролей (для отладки)
-        log.info("Ожидаемые роли для сервисного аккаунта:");
-        log.info("  - На уровне каталога {}: ai.languageModels.user, viewer, editor", yandexgptFolderId);
-        log.info("  - На уровне облака: ai.languageModels.user, viewer");
-        log.info("  - На уровне организации: ai.languageModels.user, viewer");
-        log.info("Проверьте в Yandex Cloud Console, что все роли назначены на всех уровнях");
+        // Получаем последнее сообщение пользователя из истории
+        String lastUserMessage = "";
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Map<String, String> msg = history.get(i);
+            if ("user".equals(msg.get("role"))) {
+                lastUserMessage = msg.get("content");
+                break;
+            }
+        }
         
-        // Формируем modelUri
-        String modelUri = String.format("gpt://%s/%s/latest", yandexgptFolderId, yandexgptModel);
+        if (lastUserMessage.isEmpty()) {
+            log.error("Не найдено сообщение пользователя в истории");
+            return Mono.error(new RuntimeException("Не найдено сообщение пользователя"));
+        }
         
-        // Конвертируем историю в формат YandexGPT (убираем tool сообщения, так как не поддерживаются)
-        List<Map<String, Object>> yandexMessages = convertHistoryToYandexGPTFormat(history);
-        
-        // Формируем тело запроса
+        // Формируем тело запроса для агента
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("modelUri", modelUri);
-        requestBody.put("completionOptions", Map.of(
-            "stream", false,
-            "temperature", yandexgptTemperature,
-            "maxTokens", String.valueOf(yandexgptMaxTokens)
-        ));
-        requestBody.put("messages", yandexMessages);
+        Map<String, Object> prompt = new HashMap<>();
+        prompt.put("id", yandexgptAgentId);
+        requestBody.put("prompt", prompt);
+        requestBody.put("input", lastUserMessage);
         
-        log.info("Отправляем запрос к YandexGPT API. URL: {}, Model: {}", yandexgptUrl, modelUri);
-        log.debug("Запрос содержит {} сообщений", yandexMessages.size());
+        // Добавляем project, если указан
+        if (yandexgptProject != null && !yandexgptProject.isEmpty()) {
+            requestBody.put("project", yandexgptProject);
+        }
+        
+        log.info("Отправляем запрос к YandexGPT Agent API. URL: {}, Agent ID: {}", yandexgptUrl, yandexgptAgentId);
+        log.debug("Входное сообщение: {}", lastUserMessage);
         
         return webClient.post()
             .uri(yandexgptUrl)
@@ -597,7 +605,7 @@ public class LLMService {
             .bodyValue(requestBody)
             .retrieve()
             .bodyToMono(String.class)
-            .timeout(Duration.ofSeconds(30))
+            .timeout(Duration.ofSeconds(60))  // Увеличиваем таймаут для агента (может использовать WebSearch)
             .retryWhen(Retry.backoff(2, Duration.ofSeconds(2))
                 .filter(throwable -> {
                     if (throwable instanceof WebClientResponseException) {
@@ -608,26 +616,26 @@ public class LLMService {
                     return throwable instanceof TimeoutException;
                 })
                 .doBeforeRetry(retrySignal -> 
-                    log.warn("Повторная попытка запроса к YandexGPT API (попытка {})", 
+                    log.warn("Повторная попытка запроса к YandexGPT Agent API (попытка {})", 
                         retrySignal.totalRetries() + 1))
             )
             .flatMap(response -> {
                 try {
-                    return parseYandexGPTResponse(response, userId);
+                    return parseYandexGPTAgentResponse(response, userId);
                 } catch (Exception e) {
-                    log.error("Ошибка при обработке ответа от YandexGPT API", e);
+                    log.error("Ошибка при обработке ответа от YandexGPT Agent API", e);
                     return Mono.just("Ошибка при обработке ответа: " + e.getMessage());
                 }
             })
             .doOnError(error -> {
                 if (error instanceof WebClientResponseException) {
                     WebClientResponseException ex = (WebClientResponseException) error;
-                    log.error("Ошибка HTTP при запросе к YandexGPT API. Status: {}, Body: {}", 
+                    log.error("Ошибка HTTP при запросе к YandexGPT Agent API. Status: {}, Body: {}", 
                         ex.getStatusCode(), ex.getResponseBodyAsString());
                 } else if (error instanceof TimeoutException) {
-                    log.error("Таймаут при запросе к YandexGPT API (превышено 30 секунд)");
+                    log.error("Таймаут при запросе к YandexGPT Agent API (превышено 60 секунд)");
                 } else {
-                    log.error("Ошибка при запросе к YandexGPT API", error);
+                    log.error("Ошибка при запросе к YandexGPT Agent API", error);
                 }
             });
     }
@@ -718,6 +726,68 @@ public class LLMService {
             return Mono.just("Ошибка при обработке ответа от API: " + e.getMessage());
         } catch (Exception e) {
             log.error("Неожиданная ошибка при парсинге ответа от YandexGPT API", e);
+            return Mono.just("Ошибка при обработке ответа: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Парсит ответ от YandexGPT Agent API
+     */
+    private Mono<String> parseYandexGPTAgentResponse(String responseBody, Long userId) {
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode responseJson = objectMapper.readTree(responseBody);
+            
+            // Проверяем наличие ошибки
+            if (responseJson.has("error")) {
+                JsonNode error = responseJson.get("error");
+                String errorMessage = error.has("message") ? error.get("message").asText() : "Неизвестная ошибка";
+                String errorCode = error.has("code") ? error.get("code").asText() : "UNKNOWN";
+                log.error("YandexGPT Agent API вернул ошибку. Code: {}, Message: {}", errorCode, errorMessage);
+                return Mono.error(new RuntimeException("YandexGPT Agent API Error [" + errorCode + "]: " + errorMessage));
+            }
+            
+            // Проверяем наличие output_text в ответе (основной формат)
+            JsonNode outputText = responseJson.get("output_text");
+            if (outputText != null && !outputText.isNull()) {
+                String answer = outputText.asText();
+                if (answer != null && !answer.isEmpty()) {
+                    log.info("Успешно получен ответ от YandexGPT Agent API. Длина ответа: {} символов", answer.length());
+                    conversationService.addMessage(userId, "assistant", answer);
+                    return Mono.just(answer);
+                }
+            }
+            
+            // Альтернативный формат ответа (output)
+            JsonNode output = responseJson.get("output");
+            if (output != null && !output.isNull()) {
+                String answer = output.asText();
+                if (answer != null && !answer.isEmpty()) {
+                    log.info("Успешно получен ответ от YandexGPT Agent API (формат output). Длина ответа: {} символов", answer.length());
+                    conversationService.addMessage(userId, "assistant", answer);
+                    return Mono.just(answer);
+                }
+            }
+            
+            // Еще один возможный формат (response)
+            JsonNode response = responseJson.get("response");
+            if (response != null && !response.isNull()) {
+                String answer = response.asText();
+                if (answer != null && !answer.isEmpty()) {
+                    log.info("Успешно получен ответ от YandexGPT Agent API (формат response). Длина ответа: {} символов", answer.length());
+                    conversationService.addMessage(userId, "assistant", answer);
+                    return Mono.just(answer);
+                }
+            }
+            
+            log.warn("Не найдено output_text, output или response в ответе от YandexGPT Agent API. Полный ответ: {}", responseBody);
+            return Mono.just("Ошибка: некорректная структура ответа от агента. Проверьте логи для деталей.");
+            
+        } catch (JsonProcessingException e) {
+            log.error("Ошибка при парсинге JSON ответа от YandexGPT Agent API. Ответ: {}", responseBody, e);
+            return Mono.just("Ошибка при обработке ответа от API: " + e.getMessage());
+        } catch (Exception e) {
+            log.error("Неожиданная ошибка при парсинге ответа от YandexGPT Agent API", e);
             return Mono.just("Ошибка при обработке ответа: " + e.getMessage());
         }
     }
