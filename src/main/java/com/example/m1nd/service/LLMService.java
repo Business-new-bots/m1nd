@@ -587,6 +587,9 @@ public class LLMService {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("assistantId", yandexgptAgentId);
         
+        // Добавляем поле input (требуется API)
+        requestBody.put("input", lastUserMessage);
+        
         // Формируем inputMessage в правильном формате
         Map<String, Object> inputMessage = new HashMap<>();
         inputMessage.put("role", "user");
