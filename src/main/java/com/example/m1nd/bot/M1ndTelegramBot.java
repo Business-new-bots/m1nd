@@ -11,7 +11,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.methods.updates.DeleteWebhook;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import reactor.core.publisher.Mono;
@@ -50,16 +49,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         logger.info("Бот инициализирован. Username: {}, Token: {}", 
             botConfig.getUsername(), tokenPreview);
         
-        // Сбрасываем вебхук, если он был настроен (чтобы избежать конфликта 409)
-        try {
-            DeleteWebhook deleteWebhook = new DeleteWebhook();
-            deleteWebhook.setDropPendingUpdates(true); // Удаляем ожидающие обновления
-            execute(deleteWebhook);
-            logger.info("Вебхук успешно сброшен. Используется long polling.");
-        } catch (TelegramApiException e) {
-            logger.warn("Не удалось сбросить вебхук (возможно, он не был настроен): {}", e.getMessage());
-        }
-        
+        // Вебхук теперь удаляется в TelegramBotConfiguration перед регистрацией бота
         logger.info("Бот готов к получению обновлений. Ожидаю команды /start...");
     }
     
