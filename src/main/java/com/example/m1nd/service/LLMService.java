@@ -564,6 +564,13 @@ public class LLMService {
         log.info("Folder ID: {}", yandexgptFolderId);
         log.info("Модель: {}", yandexgptModel);
         
+        // Логирование ожидаемых ролей (для отладки)
+        log.info("Ожидаемые роли для сервисного аккаунта:");
+        log.info("  - На уровне каталога {}: ai.languageModels.user, viewer, editor", yandexgptFolderId);
+        log.info("  - На уровне облака: ai.languageModels.user, viewer");
+        log.info("  - На уровне организации: ai.languageModels.user, viewer");
+        log.info("Проверьте в Yandex Cloud Console, что все роли назначены на всех уровнях");
+        
         // Формируем modelUri
         String modelUri = String.format("gpt://%s/%s/latest", yandexgptFolderId, yandexgptModel);
         
