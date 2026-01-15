@@ -43,7 +43,7 @@ llm:
       folder-id: ${YANDEXGPT_FOLDER_ID:}
       agent-id: ${YANDEXGPT_AGENT_ID:fvtb25q1stijsl40gd54}
       project: ${YANDEXGPT_PROJECT:b1gbedbc2gr62pqibolh}
-      url: https://rest-assistant.api.cloud.yandex.net/v1/responses/create
+      url: https://rest-assistant.api.cloud.yandex.net/v1/responses
       model: yandexgpt-4-lite  # Не используется для агента, оставлено для совместимости
       temperature: 0.3  # Из настроек агента
       max-tokens: 6000  # Из настроек агента

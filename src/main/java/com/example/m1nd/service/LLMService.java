@@ -583,17 +583,29 @@ public class LLMService {
             return Mono.error(new RuntimeException("Не найдено сообщение пользователя"));
         }
         
-        // Формируем тело запроса для агента
+        // Формируем тело запроса для агента в правильном формате AI Studio
         Map<String, Object> requestBody = new HashMap<>();
-        Map<String, Object> prompt = new HashMap<>();
-        prompt.put("id", yandexgptAgentId);
-        requestBody.put("prompt", prompt);
-        requestBody.put("input", lastUserMessage);
+        requestBody.put("assistantId", yandexgptAgentId);
         
-        // Добавляем project, если указан
-        if (yandexgptProject != null && !yandexgptProject.isEmpty()) {
-            requestBody.put("project", yandexgptProject);
-        }
+        // Формируем inputMessage в правильном формате
+        Map<String, Object> inputMessage = new HashMap<>();
+        inputMessage.put("role", "user");
+        inputMessage.put("type", "message");
+        
+        List<Map<String, Object>> content = new ArrayList<>();
+        Map<String, Object> textContent = new HashMap<>();
+        textContent.put("type", "input_text");
+        textContent.put("text", lastUserMessage);
+        content.add(textContent);
+        
+        inputMessage.put("content", content);
+        requestBody.put("inputMessage", inputMessage);
+        
+        // previousResponseId можно оставить пустым для первого запроса (будет null)
+        // Для поддержки контекста можно добавить позже
+        
+        // promptVariables можно оставить пустым
+        requestBody.put("promptVariables", new HashMap<>());
         
         log.info("Отправляем запрос к YandexGPT Agent API. URL: {}, Agent ID: {}", yandexgptUrl, yandexgptAgentId);
         log.debug("Входное сообщение: {}", lastUserMessage);
@@ -731,12 +743,14 @@ public class LLMService {
     }
     
     /**
-     * Парсит ответ от YandexGPT Agent API
+     * Парсит ответ от YandexGPT Agent API (AI Studio Responses API)
      */
     private Mono<String> parseYandexGPTAgentResponse(String responseBody, Long userId) {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
             JsonNode responseJson = objectMapper.readTree(responseBody);
+            
+            log.debug("Получен ответ от YandexGPT Agent API: {}", responseBody);
             
             // Проверяем наличие ошибки
             if (responseJson.has("error")) {
@@ -747,18 +761,49 @@ public class LLMService {
                 return Mono.error(new RuntimeException("YandexGPT Agent API Error [" + errorCode + "]: " + errorMessage));
             }
             
-            // Проверяем наличие output_text в ответе (основной формат)
-            JsonNode outputText = responseJson.get("output_text");
-            if (outputText != null && !outputText.isNull()) {
-                String answer = outputText.asText();
+            // Формат ответа AI Studio Responses API
+            // Проверяем наличие outputMessage в ответе
+            JsonNode outputMessage = responseJson.get("outputMessage");
+            if (outputMessage != null && !outputMessage.isNull()) {
+                // outputMessage содержит content с массивом элементов
+                JsonNode content = outputMessage.get("content");
+                if (content != null && content.isArray() && content.size() > 0) {
+                    // Берем первый элемент content
+                    JsonNode firstContent = content.get(0);
+                    if (firstContent.has("text")) {
+                        String answer = firstContent.get("text").asText();
+                        if (answer != null && !answer.isEmpty()) {
+                            log.info("Успешно получен ответ от YandexGPT Agent API. Длина ответа: {} символов", answer.length());
+                            conversationService.addMessage(userId, "assistant", answer);
+                            return Mono.just(answer);
+                        }
+                    }
+                }
+            }
+            
+            // Альтернативный формат: прямой text в ответе
+            JsonNode text = responseJson.get("text");
+            if (text != null && !text.isNull()) {
+                String answer = text.asText();
                 if (answer != null && !answer.isEmpty()) {
-                    log.info("Успешно получен ответ от YandexGPT Agent API. Длина ответа: {} символов", answer.length());
+                    log.info("Успешно получен ответ от YandexGPT Agent API (формат text). Длина ответа: {} символов", answer.length());
                     conversationService.addMessage(userId, "assistant", answer);
                     return Mono.just(answer);
                 }
             }
             
-            // Альтернативный формат ответа (output)
+            // Альтернативный формат: output_text
+            JsonNode outputText = responseJson.get("output_text");
+            if (outputText != null && !outputText.isNull()) {
+                String answer = outputText.asText();
+                if (answer != null && !answer.isEmpty()) {
+                    log.info("Успешно получен ответ от YandexGPT Agent API (формат output_text). Длина ответа: {} символов", answer.length());
+                    conversationService.addMessage(userId, "assistant", answer);
+                    return Mono.just(answer);
+                }
+            }
+            
+            // Альтернативный формат: output
             JsonNode output = responseJson.get("output");
             if (output != null && !output.isNull()) {
                 String answer = output.asText();
@@ -769,18 +814,7 @@ public class LLMService {
                 }
             }
             
-            // Еще один возможный формат (response)
-            JsonNode response = responseJson.get("response");
-            if (response != null && !response.isNull()) {
-                String answer = response.asText();
-                if (answer != null && !answer.isEmpty()) {
-                    log.info("Успешно получен ответ от YandexGPT Agent API (формат response). Длина ответа: {} символов", answer.length());
-                    conversationService.addMessage(userId, "assistant", answer);
-                    return Mono.just(answer);
-                }
-            }
-            
-            log.warn("Не найдено output_text, output или response в ответе от YandexGPT Agent API. Полный ответ: {}", responseBody);
+            log.warn("Не найдено outputMessage, text, output_text или output в ответе от YandexGPT Agent API. Полный ответ: {}", responseBody);
             return Mono.just("Ошибка: некорректная структура ответа от агента. Проверьте логи для деталей.");
             
         } catch (JsonProcessingException e) {
