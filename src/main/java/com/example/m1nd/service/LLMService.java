@@ -587,6 +587,13 @@ public class LLMService {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("assistantId", yandexgptAgentId);
         
+        // Добавляем поле model (требуется API) в формате gpt://folder-id/model-name/latest
+        if (yandexgptModel != null && !yandexgptModel.isEmpty() && yandexgptFolderId != null && !yandexgptFolderId.isEmpty()) {
+            String modelUri = "gpt://" + yandexgptFolderId + "/" + yandexgptModel + "/latest";
+            requestBody.put("model", modelUri);
+            log.debug("Используется модель: {}", modelUri);
+        }
+        
         // Добавляем поле input (требуется API)
         requestBody.put("input", lastUserMessage);
         
