@@ -16,74 +16,76 @@ public class TelegramBotConfiguration {
     @Bean
     public TelegramBotsApi telegramBotsApi(M1ndTelegramBot bot) {
         try {
-            // ВАЖНО: Удаляем вебхук ПЕРЕД регистрацией бота
+            // ВАЖНО: Удаляем вебхук ПЕРЕД регистрацией бота (несколько попыток)
             log.info("Удаление вебхука перед регистрацией бота...");
-            DeleteWebhook deleteWebhook = new DeleteWebhook();
-            deleteWebhook.setDropPendingUpdates(true);
-            bot.execute(deleteWebhook);
-            log.info("Вебхук успешно удален. Используется long polling.");
-            
-            // Небольшая задержка для гарантии, что вебхук удален на стороне Telegram
-            Thread.sleep(1000);
-            
-            // Регистрация бота с обработкой ошибки 409 (конфликт)
-            int maxRetries = 3;
-            int retryCount = 0;
-            
-            while (retryCount < maxRetries) {
+            int webhookDeleteAttempts = 3;
+            for (int i = 0; i < webhookDeleteAttempts; i++) {
                 try {
-                    TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
-                    botsApi.registerBot(bot);
-                    log.info("Бот успешно зарегистрирован в TelegramBotsApi");
-                    return botsApi;
+                    DeleteWebhook deleteWebhook = new DeleteWebhook();
+                    deleteWebhook.setDropPendingUpdates(true);
+                    bot.execute(deleteWebhook);
+                    log.info("Вебхук успешно удален (попытка {}). Используется long polling.", i + 1);
+                    break;
                 } catch (TelegramApiException e) {
-                    String errorMessage = e.getMessage() != null ? e.getMessage() : "";
-                    if (errorMessage.contains("409") || errorMessage.contains("Conflict")) {
-                        retryCount++;
-                        if (retryCount < maxRetries) {
-                            log.warn("Конфликт 409 при регистрации бота. Попытка {}/{}. Повтор через 2 секунды...", 
-                                retryCount, maxRetries);
-                            try {
-                                Thread.sleep(2000);
-                                // Повторно удаляем вебхук
-                                DeleteWebhook retryDeleteWebhook = new DeleteWebhook();
-                                retryDeleteWebhook.setDropPendingUpdates(true);
-                                bot.execute(retryDeleteWebhook);
-                                log.info("Вебхук повторно удален перед попыткой {}", retryCount + 1);
-                            } catch (Exception ex) {
-                                log.error("Ошибка при повторном удалении вебхука", ex);
-                            }
-                        } else {
-                            log.error("Не удалось зарегистрировать бота после {} попыток. Возможно, запущено несколько экземпляров приложения.", maxRetries);
-                            throw new RuntimeException("Не удалось зарегистрировать бота после " + maxRetries + " попыток. Убедитесь, что запущен только один экземпляр приложения.", e);
+                    if (i < webhookDeleteAttempts - 1) {
+                        log.warn("Не удалось удалить вебхук (попытка {}). Повтор через 2 секунды...", i + 1);
+                        try {
+                            Thread.sleep(2000);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
                         }
                     } else {
-                        // Другая ошибка - не повторяем
-                        log.error("Ошибка при регистрации бота", e);
-                        throw new RuntimeException("Не удалось зарегистрировать бота", e);
+                        log.warn("Не удалось удалить вебхук после {} попыток: {}", webhookDeleteAttempts, e.getMessage());
                     }
                 }
             }
             
-            // Этот код не должен выполниться, но на всякий случай
-            throw new RuntimeException("Не удалось зарегистрировать бота");
+            // Увеличиваем задержку для гарантии, что вебхук удален на стороне Telegram
+            log.info("Ожидание 5 секунд для применения изменений на стороне Telegram...");
+            Thread.sleep(5000);
+            
+            // Регистрация бота
+            TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
+            botsApi.registerBot(bot);
+            log.info("Бот успешно зарегистрирован в TelegramBotsApi");
+            return botsApi;
             
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Прервана задержка при удалении вебхука", e);
             throw new RuntimeException("Не удалось зарегистрировать бота", e);
         } catch (TelegramApiException e) {
-            log.error("Ошибка при удалении вебхука", e);
-            // Продолжаем регистрацию даже если не удалось удалить вебхук
-            log.warn("Продолжаем регистрацию бота несмотря на ошибку удаления вебхука");
-            try {
-                TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
-                botsApi.registerBot(bot);
-                log.info("Бот успешно зарегистрирован в TelegramBotsApi (вебхук не был удален)");
-                return botsApi;
-            } catch (TelegramApiException ex) {
-                log.error("Ошибка при регистрации бота", ex);
-                throw new RuntimeException("Не удалось зарегистрировать бота", ex);
+            String errorMessage = e.getMessage() != null ? e.getMessage() : "";
+            if (errorMessage.contains("409") || errorMessage.contains("Conflict")) {
+                log.error("Конфликт 409 при регистрации бота. Возможно, запущен другой экземпляр.");
+                log.error("Убедитесь, что запущен только один экземпляр приложения.");
+                log.error("Попытка продолжить работу несмотря на конфликт...");
+                // Пытаемся все равно зарегистрировать - возможно, другой экземпляр скоро остановится
+                try {
+                    Thread.sleep(5000);  // Ждем 5 секунд
+                    TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
+                    botsApi.registerBot(bot);
+                    log.warn("Бот зарегистрирован несмотря на конфликт. Может работать некорректно.");
+                    return botsApi;
+                } catch (TelegramApiException | InterruptedException ex) {
+                    if (ex instanceof InterruptedException) {
+                        Thread.currentThread().interrupt();
+                    }
+                    log.error("Не удалось зарегистрировать бота даже после попытки обхода конфликта", ex);
+                    throw new RuntimeException("Не удалось зарегистрировать бота из-за конфликта 409. Убедитесь, что запущен только один экземпляр.", ex);
+                }
+            } else {
+                // Другая ошибка при удалении вебхука - продолжаем регистрацию
+                log.warn("Ошибка при удалении вебхука: {}. Продолжаем регистрацию...", e.getMessage());
+                try {
+                    TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
+                    botsApi.registerBot(bot);
+                    log.info("Бот успешно зарегистрирован в TelegramBotsApi (вебхук не был удален)");
+                    return botsApi;
+                } catch (TelegramApiException ex) {
+                    log.error("Ошибка при регистрации бота", ex);
+                    throw new RuntimeException("Не удалось зарегистрировать бота", ex);
+                }
             }
         }
     }
