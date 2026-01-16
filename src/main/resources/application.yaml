@@ -40,10 +40,10 @@ llm:
       url: https://api.openai.com/v1/chat/completions
     yandexgpt:
       api-key: ${YANDEXGPT_API_KEY:}
-      folder-id: ${YANDEXGPT_FOLDER_ID:}
-      agent-id: ${YANDEXGPT_AGENT_ID:fvtb25q1stijsl40gd54}
-      project: ${YANDEXGPT_PROJECT:b1gbedbc2gr62pqibolh}
-      url: https://rest-assistant.api.cloud.yandex.net/v1/responses
+      folder-id: ${YANDEXGPT_FOLDER_ID:b1gbedbc2gr62pqibolh}  # ID папки в Yandex Cloud
+      agent-id: ${YANDEXGPT_AGENT_ID:fvtb25q1stijsl40gd54}  # ID агента (используется для справки)
+      project: ${YANDEXGPT_PROJECT:b1gbedbc2gr62pqibolh}  # ID проекта (для совместимости)
+      url: https://rest-assistant.api.cloud.yandex.net/v1/responses  # Responses API endpoint
       model: yandexgpt-4-lite  # Не используется для агента, оставлено для совместимости
       temperature: 0.3  # Из настроек агента
       max-tokens: 6000  # Из настроек агента

@@ -12,6 +12,8 @@ public class ConversationService {
     
     // Храним историю диалогов для каждого пользователя
     private final Map<Long, List<Map<String, String>>> conversations = new ConcurrentHashMap<>();
+    // Храним последний response ID для каждого пользователя (для YandexGPT Responses API контекста)
+    private final Map<Long, String> lastResponseIds = new ConcurrentHashMap<>();
     private static final int MAX_HISTORY_SIZE = 10;
     
     public void addMessage(Long userId, String role, String content) {
@@ -37,6 +39,24 @@ public class ConversationService {
     
     public void clearHistory(Long userId) {
         conversations.remove(userId);
+        lastResponseIds.remove(userId);
+    }
+    
+    /**
+     * Сохраняет последний response ID для пользователя (для YandexGPT Responses API контекста)
+     */
+    public void setLastResponseId(Long userId, String responseId) {
+        if (responseId != null && !responseId.isEmpty()) {
+            lastResponseIds.put(userId, responseId);
+            log.debug("Сохранен response ID для пользователя {}: {}", userId, responseId);
+        }
+    }
+    
+    /**
+     * Получает последний response ID для пользователя (для YandexGPT Responses API контекста)
+     */
+    public String getLastResponseId(Long userId) {
+        return lastResponseIds.get(userId);
     }
     
     public void initializeHistory(Long userId, String systemPrompt) {
