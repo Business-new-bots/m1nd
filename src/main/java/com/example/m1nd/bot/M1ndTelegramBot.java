@@ -134,8 +134,15 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         message.setText("Привет! Это ♾\uFE0F пространство для тех, кто ищет ресурсы — знания, ответы, поддержку. Для роста, масштабирования и гармонии. Спрашивай, о чем угодно! Помогу с ответами.");
         
         // Если пользователь администратор - добавляем кнопки
-        if (username != null && adminService.isAdmin(username)) {
-            message.setReplyMarkup(createAdminKeyboard());
+        if (username != null) {
+            boolean isAdmin = adminService.isAdmin(username);
+            logger.info("Проверка админа для username '{}' (userId: {}): {}", username, userId, isAdmin);
+            if (isAdmin) {
+                message.setReplyMarkup(createAdminKeyboard());
+                logger.info("Кнопки администратора добавлены для {}", username);
+            }
+        } else {
+            logger.warn("Username пользователя {} равен null", userId);
         }
         
         try {
@@ -615,6 +622,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
      * Создает клавиатуру с кнопками для администраторов
      */
     private InlineKeyboardMarkup createAdminKeyboard() {
+        logger.debug("Создание клавиатуры для администратора");
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         
         InlineKeyboardButton statsButton = new InlineKeyboardButton();
@@ -633,6 +641,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         keyboard.add(row);
         
         markup.setKeyboard(keyboard);
+        logger.debug("Клавиатура создана с {} кнопками", row.size());
         return markup;
     }
     
