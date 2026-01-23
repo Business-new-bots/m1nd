@@ -44,6 +44,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     
     // Храним состояние ожидания username для добавления админа
     private final java.util.Map<Long, Boolean> waitingForAdminUsername = new java.util.concurrent.ConcurrentHashMap<>();
+    // Храним состояние ожидания username для удаления админа
+    private final java.util.Map<Long, Boolean> waitingForRemoveAdminUsername = new java.util.concurrent.ConcurrentHashMap<>();
     
     @Override
     public String getBotUsername() {
@@ -98,7 +100,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             logger.info("Обработка команды /addadmin");
             handleAddAdminCommand(update, messageText);
         } else {
-            // Проверяем, ожидаем ли мы username для добавления админа
+            // Проверяем, ожидаем ли мы username для добавления/удаления админа
             Long userId = update.getMessage().getFrom().getId();
             String username = update.getMessage().getFrom().getUserName();
             
@@ -107,6 +109,11 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 // Обрабатываем username для добавления админа
                 handleAddAdminUsername(update, messageText);
                 waitingForAdminUsername.remove(userId);
+            } else if (waitingForRemoveAdminUsername.getOrDefault(userId, false) && 
+                username != null && adminService.isAdmin(username)) {
+                // Обрабатываем username для удаления админа
+                handleRemoveAdminUsername(update, messageText);
+                waitingForRemoveAdminUsername.remove(userId);
             } else {
                 // Обработка обычных сообщений (вопросов)
                 logger.info("Обработка вопроса: {}", messageText);
@@ -477,10 +484,34 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             // Отправляем статистику
             sendStatistics(chatId);
             sendCallbackAnswer(callbackQuery.getId(), "✅ Статистика отправлена");
-        } else if (data != null && data.startsWith("add_admin:")) {
-            // Обработка добавления админа (будет реализовано ниже)
-            String targetUsername = data.substring("add_admin:".length());
-            handleAddAdminCallback(callbackQuery, targetUsername);
+        } else if ("admin_menu".equals(data)) {
+            // Показываем меню администратора
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("👤 Меню администратора\n\nВыберите действие:");
+            message.setReplyMarkup(createAdminMenuKeyboard());
+            
+            try {
+                execute(message);
+                sendCallbackAnswer(callbackQuery.getId(), "✅ Меню открыто");
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке меню", e);
+                sendCallbackAnswer(callbackQuery.getId(), "❌ Ошибка");
+            }
+        } else if ("back_to_main".equals(data)) {
+            // Возврат к главному меню
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("Главное меню");
+            message.setReplyMarkup(createAdminKeyboard());
+            
+            try {
+                execute(message);
+                sendCallbackAnswer(callbackQuery.getId(), "✅");
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения", e);
+                sendCallbackAnswer(callbackQuery.getId(), "❌ Ошибка");
+            }
         } else if ("add_admin_prompt".equals(data)) {
             // Запрос на добавление админа - устанавливаем флаг ожидания
             waitingForAdminUsername.put(userId, true);
@@ -490,6 +521,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             message.setText("📝 Отправьте username пользователя, которого хотите добавить как администратора.\n\n" +
                 "Формат: @username или просто username\n\n" +
                 "Пример: @puh2012 или puh2012");
+            message.setReplyMarkup(createAdminMenuKeyboard());
             
             try {
                 execute(message);
@@ -499,6 +531,33 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 sendCallbackAnswer(callbackQuery.getId(), "❌ Ошибка");
                 waitingForAdminUsername.remove(userId);
             }
+        } else if ("list_admins".equals(data)) {
+            // Показываем список админов
+            handleListAdmins(chatId);
+            sendCallbackAnswer(callbackQuery.getId(), "✅ Список отправлен");
+        } else if ("remove_admin_prompt".equals(data)) {
+            // Запрос на удаление админа - устанавливаем флаг ожидания
+            waitingForRemoveAdminUsername.put(userId, true);
+            
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("📝 Отправьте username администратора, которого хотите удалить.\n\n" +
+                "Формат: @username или просто username\n\n" +
+                "Пример: @puh2012 или puh2012");
+            message.setReplyMarkup(createAdminMenuKeyboard());
+            
+            try {
+                execute(message);
+                sendCallbackAnswer(callbackQuery.getId(), "✅ Введите username");
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения", e);
+                sendCallbackAnswer(callbackQuery.getId(), "❌ Ошибка");
+                waitingForRemoveAdminUsername.remove(userId);
+            }
+        } else if (data != null && data.startsWith("add_admin:")) {
+            // Обработка добавления админа (старый формат, оставлен для совместимости)
+            String targetUsername = data.substring("add_admin:".length());
+            handleAddAdminCallback(callbackQuery, targetUsername);
         } else {
             sendCallbackAnswer(callbackQuery.getId(), "❌ Неизвестная команда");
         }
@@ -592,6 +651,95 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     }
     
     /**
+     * Показывает список всех администраторов
+     */
+    private void handleListAdmins(Long chatId) {
+        List<com.example.m1nd.model.Admin> admins = adminService.getAllAdmins();
+        
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        
+        if (admins.isEmpty()) {
+            message.setText("📋 Список администраторов пуст.");
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append("📋 Список администраторов (").append(admins.size()).append("):\n\n");
+            
+            for (int i = 0; i < admins.size(); i++) {
+                com.example.m1nd.model.Admin admin = admins.get(i);
+                sb.append(i + 1).append(". ").append(admin.getUsername());
+                if (admin.getAddedAt() != null) {
+                    sb.append("\n   Добавлен: ").append(admin.getAddedAt().toLocalDate());
+                }
+                if (admin.getAddedBy() != null && !admin.getAddedBy().equals("system")) {
+                    sb.append("\n   Добавил: ").append(admin.getAddedBy());
+                }
+                sb.append("\n\n");
+            }
+            
+            message.setText(sb.toString());
+        }
+        
+        message.setReplyMarkup(createAdminMenuKeyboard());
+        
+        try {
+            execute(message);
+            logger.info("Список администраторов отправлен");
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке списка администраторов", e);
+        }
+    }
+    
+    /**
+     * Обрабатывает username для удаления админа
+     */
+    private void handleRemoveAdminUsername(Update update, String messageText) {
+        String username = update.getMessage().getFrom().getUserName();
+        Long chatId = update.getMessage().getChatId();
+        
+        // Извлекаем username из сообщения
+        String targetUsername = messageText.trim();
+        
+        // Проверяем, не пытается ли пользователь удалить самого себя
+        String cleanTargetUsername = targetUsername.startsWith("@") ? targetUsername.substring(1) : targetUsername;
+        String cleanCurrentUsername = username != null && username.startsWith("@") ? username.substring(1) : username;
+        
+        if (cleanTargetUsername.equalsIgnoreCase(cleanCurrentUsername)) {
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("❌ Вы не можете удалить самого себя из администраторов.");
+            message.setReplyMarkup(createAdminMenuKeyboard());
+            
+            try {
+                execute(message);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения", e);
+            }
+            return;
+        }
+        
+        boolean removed = adminService.removeAdmin(targetUsername);
+        
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        
+        if (removed) {
+            message.setText("✅ Администратор @" + targetUsername.replace("@", "") + " успешно удален!");
+        } else {
+            message.setText("❌ Не удалось удалить администратора. Возможно, он не найден в списке.");
+        }
+        
+        // Добавляем кнопки админа
+        message.setReplyMarkup(createAdminKeyboard());
+        
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке сообщения", e);
+        }
+    }
+    
+    /**
      * Обрабатывает callback для добавления админа (старый метод, оставлен для совместимости)
      */
     private void handleAddAdminCallback(CallbackQuery callbackQuery, String targetUsername) {
@@ -629,19 +777,65 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         statsButton.setText("📊 Статистика");
         statsButton.setCallbackData("stats");
         
-        InlineKeyboardButton addAdminButton = new InlineKeyboardButton();
-        addAdminButton.setText("➕ Добавить админа");
-        addAdminButton.setCallbackData("add_admin_prompt");
+        InlineKeyboardButton adminButton = new InlineKeyboardButton();
+        adminButton.setText("👤 Админ");
+        adminButton.setCallbackData("admin_menu");
         
         List<InlineKeyboardButton> row = new ArrayList<>();
         row.add(statsButton);
-        row.add(addAdminButton);
+        row.add(adminButton);
         
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
         keyboard.add(row);
         
         markup.setKeyboard(keyboard);
         logger.debug("Клавиатура создана с {} кнопками", row.size());
+        return markup;
+    }
+    
+    /**
+     * Создает меню администратора
+     */
+    private InlineKeyboardMarkup createAdminMenuKeyboard() {
+        logger.debug("Создание меню администратора");
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        
+        InlineKeyboardButton addAdminButton = new InlineKeyboardButton();
+        addAdminButton.setText("➕ Добавить админа");
+        addAdminButton.setCallbackData("add_admin_prompt");
+        
+        InlineKeyboardButton listAdminsButton = new InlineKeyboardButton();
+        listAdminsButton.setText("📋 Список админов");
+        listAdminsButton.setCallbackData("list_admins");
+        
+        InlineKeyboardButton removeAdminButton = new InlineKeyboardButton();
+        removeAdminButton.setText("➖ Удалить админа");
+        removeAdminButton.setCallbackData("remove_admin_prompt");
+        
+        InlineKeyboardButton backButton = new InlineKeyboardButton();
+        backButton.setText("◀️ Назад");
+        backButton.setCallbackData("back_to_main");
+        
+        List<InlineKeyboardButton> row1 = new ArrayList<>();
+        row1.add(addAdminButton);
+        
+        List<InlineKeyboardButton> row2 = new ArrayList<>();
+        row2.add(listAdminsButton);
+        
+        List<InlineKeyboardButton> row3 = new ArrayList<>();
+        row3.add(removeAdminButton);
+        
+        List<InlineKeyboardButton> row4 = new ArrayList<>();
+        row4.add(backButton);
+        
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        keyboard.add(row1);
+        keyboard.add(row2);
+        keyboard.add(row3);
+        keyboard.add(row4);
+        
+        markup.setKeyboard(keyboard);
+        logger.debug("Меню администратора создано");
         return markup;
     }
     
