@@ -33,5 +33,6 @@ build/
 .vscode/
 
 ### Application Data ###
+data/
 users.json
 *.json.bak

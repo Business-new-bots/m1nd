@@ -39,6 +39,10 @@ public class UserService {
             if (!file.exists()) {
                 log.info("Файл {} не существует, пытаемся создать из resources", usersFile);
                 try {
+                    // Создаем директорию, если её нет
+                    if (file.getParentFile() != null) {
+                        file.getParentFile().mkdirs();
+                    }
                     // Пытаемся скопировать из resources
                     java.io.InputStream resourceStream = getClass().getClassLoader()
                         .getResourceAsStream("users.json");
@@ -56,6 +60,9 @@ public class UserService {
                     log.warn("Не удалось создать файл из resources: {}", e.getMessage());
                     // Создаем пустой файл
                     try {
+                        if (file.getParentFile() != null) {
+                            file.getParentFile().mkdirs();
+                        }
                         List<User> emptyList = new ArrayList<>();
                         jsonFileUtil.writeToFile(usersFile, emptyList);
                         log.info("Создан пустой файл {}", usersFile);
@@ -63,6 +70,8 @@ public class UserService {
                         log.error("Не удалось создать файл {}", usersFile, ioException);
                     }
                 }
+            } else {
+                log.info("Файл {} уже существует, используем существующий файл", usersFile);
             }
         } catch (Exception e) {
             log.warn("Ошибка при проверке пути к файлу: {}", e.getMessage());

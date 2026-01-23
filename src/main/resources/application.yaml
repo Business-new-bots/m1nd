@@ -50,9 +50,9 @@ llm:
 
 app:
   data:
-    users-file: users.json
+    users-file: data/users.json
     prompt-file: prompt.txt
-    admins-file: admins.json  # Файл с администраторами (по username)
+    admins-file: data/admins.json  # Файл с администраторами (по username)
 
 search:
   yandex:

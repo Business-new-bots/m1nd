@@ -37,6 +37,10 @@ public class AdminService {
             if (!file.exists()) {
                 log.info("Файл {} не существует, пытаемся создать из resources", adminsFile);
                 try {
+                    // Создаем директорию, если её нет
+                    if (file.getParentFile() != null) {
+                        file.getParentFile().mkdirs();
+                    }
                     // Пытаемся скопировать из resources
                     java.io.InputStream resourceStream = getClass().getClassLoader()
                         .getResourceAsStream("admins.json");
@@ -54,6 +58,9 @@ public class AdminService {
                     log.warn("Не удалось создать файл из resources: {}", e.getMessage());
                     // Создаем пустой файл
                     try {
+                        if (file.getParentFile() != null) {
+                            file.getParentFile().mkdirs();
+                        }
                         List<Admin> emptyList = new ArrayList<>();
                         jsonFileUtil.writeToFile(adminsFile, emptyList);
                         log.info("Создан пустой файл {}", adminsFile);
@@ -61,6 +68,8 @@ public class AdminService {
                         log.error("Не удалось создать файл {}", adminsFile, ioException);
                     }
                 }
+            } else {
+                log.info("Файл {} уже существует, используем существующий файл", adminsFile);
             }
         } catch (Exception e) {
             log.warn("Ошибка при проверке пути к файлу: {}", e.getMessage());
