@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.objects.Update;
 
+import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -23,6 +24,57 @@ public class UserService {
     
     @Value("${app.data.users-file}")
     private String usersFile;
+    
+    @PostConstruct
+    public void init() {
+        log.info("UserService инициализирован. Файл пользователей: {}", usersFile);
+        
+        // Проверяем абсолютный путь к файлу
+        try {
+            java.io.File file = new java.io.File(usersFile);
+            log.info("Абсолютный путь к файлу пользователей: {}", file.getAbsolutePath());
+            log.info("Файл существует: {}", file.exists());
+            
+            // Если файл не существует, создаем его из resources
+            if (!file.exists()) {
+                log.info("Файл {} не существует, пытаемся создать из resources", usersFile);
+                try {
+                    // Пытаемся скопировать из resources
+                    java.io.InputStream resourceStream = getClass().getClassLoader()
+                        .getResourceAsStream("users.json");
+                    if (resourceStream != null) {
+                        String content = new String(resourceStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                        java.nio.file.Files.write(java.nio.file.Paths.get(usersFile), content.getBytes());
+                        log.info("Файл {} создан из resources", usersFile);
+                    } else {
+                        // Создаем пустой файл
+                        List<User> emptyList = new ArrayList<>();
+                        jsonFileUtil.writeToFile(usersFile, emptyList);
+                        log.info("Создан пустой файл {}", usersFile);
+                    }
+                } catch (Exception e) {
+                    log.warn("Не удалось создать файл из resources: {}", e.getMessage());
+                    // Создаем пустой файл
+                    try {
+                        List<User> emptyList = new ArrayList<>();
+                        jsonFileUtil.writeToFile(usersFile, emptyList);
+                        log.info("Создан пустой файл {}", usersFile);
+                    } catch (IOException ioException) {
+                        log.error("Не удалось создать файл {}", usersFile, ioException);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Ошибка при проверке пути к файлу: {}", e.getMessage());
+        }
+        
+        try {
+            List<User> users = jsonFileUtil.readFromFile(usersFile, User.class);
+            log.info("Загружено {} пользователей", users.size());
+        } catch (Exception e) {
+            log.warn("Не удалось загрузить пользователей при инициализации: {}", e.getMessage());
+        }
+    }
     
     public void registerUser(Update update) {
         try {
