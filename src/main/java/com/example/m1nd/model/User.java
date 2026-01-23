@@ -26,7 +26,22 @@ public class User {
     @JsonProperty("registeredAt")
     private LocalDateTime registeredAt;
     
+    @JsonProperty("firstActivityAt")
+    private LocalDateTime firstActivityAt;  // Первая активность (может отличаться от регистрации)
+    
+    @JsonProperty("lastActivityAt")
+    private LocalDateTime lastActivityAt;  // Последняя активность
+    
     @JsonProperty("questionsCount")
     private Integer questionsCount = 0;
+    
+    @JsonProperty("totalMessages")
+    private Integer totalMessages = 0;  // Всего сообщений (включая команды)
+    
+    @JsonProperty("sessionsCount")
+    private Integer sessionsCount = 0;  // Количество сессий (возвращений)
+    
+    @JsonProperty("isReturningUser")
+    private Boolean isReturningUser = false;  // Является ли возвращающимся пользователем
 }
 

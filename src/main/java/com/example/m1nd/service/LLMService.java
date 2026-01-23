@@ -759,7 +759,7 @@ public class LLMService {
     
     /**
      * Парсит ответ от YandexGPT Responses API
-     * Формат: { "id": "...", "output_text": "...", "output_message": {...} }
+     * Формат: { "id": "...", "output": [{ "content": [{ "text": "..." }] }], "error": null }
      */
     private Mono<String> parseYandexGPTResponsesAPIResponse(String responseBody, Long userId) {
         try {
@@ -774,8 +774,8 @@ public class LLMService {
             
             JsonNode responseJson = objectMapper.readTree(responseBody);
             
-            // Проверяем наличие ошибки
-            if (responseJson.has("error")) {
+            // Проверяем наличие ошибки (только если error не null)
+            if (responseJson.has("error") && !responseJson.get("error").isNull()) {
                 JsonNode error = responseJson.get("error");
                 String errorMessage = error.has("message") ? error.get("message").asText() : "Неизвестная ошибка";
                 String errorCode = error.has("code") ? error.get("code").asText() : "UNKNOWN";
@@ -798,7 +798,37 @@ public class LLMService {
                 return Mono.error(new RuntimeException("YandexGPT Responses API Error [" + errorCode + "]: " + errorMessage));
             }
             
-            // Основной формат Responses API - output_text
+            // Основной формат Responses API - output (массив сообщений)
+            if (responseJson.has("output") && responseJson.get("output").isArray()) {
+                JsonNode outputArray = responseJson.get("output");
+                if (outputArray.size() > 0) {
+                    JsonNode firstOutput = outputArray.get(0);
+                    if (firstOutput.has("content") && firstOutput.get("content").isArray()) {
+                        JsonNode contentArray = firstOutput.get("content");
+                        if (contentArray.size() > 0) {
+                            JsonNode firstContent = contentArray.get(0);
+                            if (firstContent.has("text")) {
+                                String answer = firstContent.get("text").asText();
+                                if (answer != null && !answer.isEmpty()) {
+                                    log.info("Успешно получен ответ от YandexGPT Responses API (формат output). Длина ответа: {} символов", answer.length());
+                                    conversationService.addMessage(userId, "assistant", answer);
+                                    
+                                    // Сохраняем response.id для контекста
+                                    if (responseJson.has("id")) {
+                                        String responseId = responseJson.get("id").asText();
+                                        conversationService.setLastResponseId(userId, responseId);
+                                        log.debug("Сохранен response ID для контекста: {}", responseId);
+                                    }
+                                    
+                                    return Mono.just(answer);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Альтернативный формат: output_text (прямое поле)
             if (responseJson.has("output_text")) {
                 String answer = responseJson.get("output_text").asText();
                 if (answer != null && !answer.isEmpty()) {
