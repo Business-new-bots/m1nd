@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog 
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Вставка начального администратора -->
+    <changeSet id="002_insert_initial_admin" author="m1nd">
+        <preConditions onFail="CONTINUE">
+            <tableExists tableName="admins"/>
+            <not>
+                <sqlCheck expectedResult="1">
+                    SELECT COUNT(*) FROM admins WHERE username = '@puh2012'
+                </sqlCheck>
+            </not>
+        </preConditions>
+        
+        <insert tableName="admins">
+            <column name="username" value="@puh2012"/>
+            <column name="added_at" valueDate="2026-01-16T00:00:00"/>
+            <column name="added_by" value="system"/>
+        </insert>
+        
+        <rollback>
+            <delete tableName="admins">
+                <where>username = '@puh2012'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

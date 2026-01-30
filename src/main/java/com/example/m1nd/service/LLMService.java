@@ -668,6 +668,86 @@ public class LLMService {
     }
     
     /**
+     * Отправляет запрос на свёртку диалога в YandexGPT
+     * Принимает готовый текст с инструкцией и историей вопросов/ответов
+     */
+    public Mono<String> summarizeConversation(String summarizationPrompt) {
+        WebClient webClient = webClientBuilder.build();
+        
+        if (yandexgptApiKey == null || yandexgptApiKey.isEmpty()) {
+            log.error("YandexGPT API ключ не настроен");
+            return Mono.error(new RuntimeException("YandexGPT API ключ не настроен"));
+        }
+        if (yandexgptAgentId == null || yandexgptAgentId.isEmpty()) {
+            log.error("YandexGPT Agent ID не настроен");
+            return Mono.error(new RuntimeException("YandexGPT Agent ID не настроен"));
+        }
+        
+        Map<String, Object> requestBody = new HashMap<>();
+        Map<String, Object> prompt = new HashMap<>();
+        prompt.put("id", yandexgptAgentId);
+        requestBody.put("prompt", prompt);
+        requestBody.put("input", summarizationPrompt);
+        
+        log.info("Отправляем запрос на свёртку диалога к YandexGPT Responses API");
+        log.debug("Промпт для свёртки (длина: {} символов): {}", 
+            summarizationPrompt.length(), summarizationPrompt.substring(0, Math.min(200, summarizationPrompt.length())));
+        
+        return webClient.post()
+            .uri(yandexgptUrl)
+            .header("Authorization", "Api-Key " + yandexgptApiKey)
+            .header("Content-Type", "application/json")
+            .header("OpenAI-Project", yandexgptFolderId)
+            .bodyValue(requestBody)
+            .retrieve()
+            .bodyToMono(String.class)
+            .timeout(Duration.ofSeconds(60))
+            .flatMap(response -> {
+                try {
+                    JsonNode responseJson = objectMapper.readTree(response);
+                    
+                    if (responseJson.has("error") && !responseJson.get("error").isNull()) {
+                        JsonNode error = responseJson.get("error");
+                        String errorMessage = error.has("message") ? error.get("message").asText() : "Неизвестная ошибка";
+                        log.error("YandexGPT вернул ошибку при свёртке: {}", errorMessage);
+                        return Mono.error(new RuntimeException("Ошибка свёртки: " + errorMessage));
+                    }
+                    
+                    // Парсим ответ так же, как обычный ответ
+                    if (responseJson.has("output") && responseJson.get("output").isArray()) {
+                        JsonNode outputArray = responseJson.get("output");
+                        if (outputArray.size() > 0) {
+                            JsonNode firstOutput = outputArray.get(0);
+                            if (firstOutput.has("content") && firstOutput.get("content").isArray()) {
+                                JsonNode contentArray = firstOutput.get("content");
+                                if (contentArray.size() > 0 && contentArray.get(0).has("text")) {
+                                    String summary = contentArray.get(0).get("text").asText();
+                                    log.info("Получена сводка от YandexGPT (длина: {} символов)", summary.length());
+                                    return Mono.just(summary);
+                                }
+                            }
+                        }
+                    }
+                    
+                    log.warn("Некорректная структура ответа при свёртке");
+                    return Mono.error(new RuntimeException("Некорректная структура ответа"));
+                } catch (Exception e) {
+                    log.error("Ошибка при парсинге ответа свёртки", e);
+                    return Mono.error(new RuntimeException("Ошибка парсинга: " + e.getMessage()));
+                }
+            })
+            .doOnError(error -> {
+                if (error instanceof WebClientResponseException) {
+                    WebClientResponseException ex = (WebClientResponseException) error;
+                    log.error("Ошибка HTTP при свёртке. Status: {}, Body: {}", 
+                        ex.getStatusCode(), ex.getResponseBodyAsString());
+                } else {
+                    log.error("Ошибка при свёртке диалога", error);
+                }
+            });
+    }
+    
+    /**
      * Конвертирует историю диалога в формат YandexGPT
      * YandexGPT использует формат: { "role": "...", "text": "..." }
      * Убираем сообщения с role="tool", так как YandexGPT их не поддерживает

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog 
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Добавление поля last_reminder_sent_at в таблицу users -->
+    <changeSet id="003_add_last_reminder_sent_at" author="m1nd">
+        <preConditions onFail="CONTINUE">
+            <tableExists tableName="users"/>
+            <not>
+                <columnExists tableName="users" columnName="last_reminder_sent_at"/>
+            </not>
+        </preConditions>
+        
+        <addColumn tableName="users">
+            <column name="last_reminder_sent_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        
+        <rollback>
+            <dropColumn tableName="users" columnName="last_reminder_sent_at"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
