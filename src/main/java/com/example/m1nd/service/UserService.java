@@ -1,17 +1,15 @@
 package com.example.m1nd.service;
 
 import com.example.m1nd.model.User;
-import com.example.m1nd.util.JsonFileUtil;
+import com.example.m1nd.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.objects.Update;
 
 import jakarta.annotation.PostConstruct;
-import java.io.IOException;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,71 +18,16 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class UserService {
     
-    private final JsonFileUtil jsonFileUtil;
-    
-    @Value("${app.data.users-file}")
-    private String usersFile;
+    private final UserRepository userRepository;
     
     @PostConstruct
     public void init() {
-        log.info("UserService инициализирован. Файл пользователей: {}", usersFile);
-        
-        // Проверяем абсолютный путь к файлу
-        try {
-            java.io.File file = new java.io.File(usersFile);
-            log.info("Абсолютный путь к файлу пользователей: {}", file.getAbsolutePath());
-            log.info("Файл существует: {}", file.exists());
-            
-            // Если файл не существует, создаем его из resources
-            if (!file.exists()) {
-                log.info("Файл {} не существует, пытаемся создать из resources", usersFile);
-                try {
-                    // Создаем директорию, если её нет
-                    if (file.getParentFile() != null) {
-                        file.getParentFile().mkdirs();
-                    }
-                    // Пытаемся скопировать из resources
-                    java.io.InputStream resourceStream = getClass().getClassLoader()
-                        .getResourceAsStream("users.json");
-                    if (resourceStream != null) {
-                        String content = new String(resourceStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-                        java.nio.file.Files.write(java.nio.file.Paths.get(usersFile), content.getBytes());
-                        log.info("Файл {} создан из resources", usersFile);
-                    } else {
-                        // Создаем пустой файл
-                        List<User> emptyList = new ArrayList<>();
-                        jsonFileUtil.writeToFile(usersFile, emptyList);
-                        log.info("Создан пустой файл {}", usersFile);
-                    }
-                } catch (Exception e) {
-                    log.warn("Не удалось создать файл из resources: {}", e.getMessage());
-                    // Создаем пустой файл
-                    try {
-                        if (file.getParentFile() != null) {
-                            file.getParentFile().mkdirs();
-                        }
-                        List<User> emptyList = new ArrayList<>();
-                        jsonFileUtil.writeToFile(usersFile, emptyList);
-                        log.info("Создан пустой файл {}", usersFile);
-                    } catch (IOException ioException) {
-                        log.error("Не удалось создать файл {}", usersFile, ioException);
-                    }
-                }
-            } else {
-                log.info("Файл {} уже существует, используем существующий файл", usersFile);
-            }
-        } catch (Exception e) {
-            log.warn("Ошибка при проверке пути к файлу: {}", e.getMessage());
-        }
-        
-        try {
-            List<User> users = jsonFileUtil.readFromFile(usersFile, User.class);
-            log.info("Загружено {} пользователей", users.size());
-        } catch (Exception e) {
-            log.warn("Не удалось загрузить пользователей при инициализации: {}", e.getMessage());
-        }
+        log.info("UserService инициализирован. Используется БД (PostgreSQL)");
+        long count = userRepository.count();
+        log.info("В БД загружено {} пользователей", count);
     }
     
+    @Transactional
     public void registerUser(Update update) {
         try {
             Long userId = update.getMessage().getFrom().getId();
@@ -92,16 +35,11 @@ public class UserService {
             String firstName = update.getMessage().getFrom().getFirstName();
             String lastName = update.getMessage().getFrom().getLastName();
             
-            List<User> users = jsonFileUtil.readFromFile(usersFile, User.class);
-            
-            // Проверяем, существует ли пользователь
-            Optional<User> existingUser = users.stream()
-                .filter(u -> u.getUserId().equals(userId))
-                .findFirst();
-            
             LocalDateTime now = LocalDateTime.now();
             
-            if (existingUser.isEmpty()) {
+            Optional<User> existingUserOpt = userRepository.findByUserId(userId);
+            
+            if (existingUserOpt.isEmpty()) {
                 // Создаем нового пользователя
                 User newUser = new User();
                 newUser.setUserId(userId);
@@ -116,12 +54,11 @@ public class UserService {
                 newUser.setSessionsCount(1);
                 newUser.setIsReturningUser(false);
                 
-                users.add(newUser);
-                jsonFileUtil.writeToFile(usersFile, users);
-                log.info("Зарегистрирован новый пользователь: {}", userId);
+                userRepository.save(newUser);
+                log.info("Зарегистрирован новый пользователь в БД: {}", userId);
             } else {
                 // Обновляем существующего пользователя
-                User user = existingUser.get();
+                User user = existingUserOpt.get();
                 updateUserActivity(user, now);
                 
                 // Обновляем данные пользователя, если они изменились
@@ -129,67 +66,55 @@ public class UserService {
                 user.setFirstName(firstName);
                 user.setLastName(lastName);
                 
-                jsonFileUtil.writeToFile(usersFile, users);
-                log.debug("Обновлена активность пользователя {}: {}", userId, now);
+                userRepository.save(user);
+                log.debug("Обновлена активность пользователя в БД {}: {}", userId, now);
             }
-        } catch (IOException e) {
-            log.error("Ошибка при регистрации пользователя", e);
+        } catch (Exception e) {
+            log.error("Ошибка при регистрации пользователя в БД", e);
         }
     }
     
     /**
      * Отслеживает активность пользователя (любое взаимодействие)
      */
+    @Transactional
     public void trackUserActivity(Long userId) {
         try {
-            List<User> users = jsonFileUtil.readFromFile(usersFile, User.class);
-            
-            users.stream()
-                .filter(u -> u.getUserId().equals(userId))
-                .findFirst()
-                .ifPresent(user -> {
-                    LocalDateTime now = LocalDateTime.now();
-                    updateUserActivity(user, now);
-                    
-                    // Увеличиваем счетчик сообщений
-                    user.setTotalMessages(user.getTotalMessages() + 1);
-                    
-                    try {
-                        jsonFileUtil.writeToFile(usersFile, users);
-                        log.debug("Отслежена активность пользователя {}: {}", userId, now);
-                    } catch (IOException e) {
-                        log.error("Ошибка при сохранении активности", e);
-                    }
-                });
-        } catch (IOException e) {
-            log.error("Ошибка при отслеживании активности", e);
+            Optional<User> userOpt = userRepository.findByUserId(userId);
+            if (userOpt.isPresent()) {
+                User user = userOpt.get();
+                LocalDateTime now = LocalDateTime.now();
+                updateUserActivity(user, now);
+                
+                // Увеличиваем счетчик сообщений
+                user.setTotalMessages(user.getTotalMessages() + 1);
+                
+                userRepository.save(user);
+                log.debug("Отслежена активность пользователя в БД {}: {}", userId, now);
+            }
+        } catch (Exception e) {
+            log.error("Ошибка при отслеживании активности в БД", e);
         }
     }
     
     /**
      * Увеличивает счетчик вопросов и отслеживает активность
      */
+    @Transactional
     public void incrementQuestionsCount(Long userId) {
         try {
-            List<User> users = jsonFileUtil.readFromFile(usersFile, User.class);
-            
-            users.stream()
-                .filter(u -> u.getUserId().equals(userId))
-                .findFirst()
-                .ifPresent(user -> {
-                    user.setQuestionsCount(user.getQuestionsCount() + 1);
-                    LocalDateTime now = LocalDateTime.now();
-                    updateUserActivity(user, now);
-                    
-                    try {
-                        jsonFileUtil.writeToFile(usersFile, users);
-                        log.debug("Увеличен счетчик вопросов для пользователя {}: {}", userId, user.getQuestionsCount());
-                    } catch (IOException e) {
-                        log.error("Ошибка при сохранении счетчика вопросов", e);
-                    }
-                });
-        } catch (IOException e) {
-            log.error("Ошибка при увеличении счетчика вопросов", e);
+            Optional<User> userOpt = userRepository.findByUserId(userId);
+            if (userOpt.isPresent()) {
+                User user = userOpt.get();
+                user.setQuestionsCount(user.getQuestionsCount() + 1);
+                LocalDateTime now = LocalDateTime.now();
+                updateUserActivity(user, now);
+                
+                userRepository.save(user);
+                log.debug("Увеличен счетчик вопросов в БД для пользователя {}: {}", userId, user.getQuestionsCount());
+            }
+        } catch (Exception e) {
+            log.error("Ошибка при увеличении счетчика вопросов в БД", e);
         }
     }
     
@@ -224,27 +149,47 @@ public class UserService {
     }
     
     public Optional<User> getUser(Long userId) {
-        try {
-            List<User> users = jsonFileUtil.readFromFile(usersFile, User.class);
-            return users.stream()
-                .filter(u -> u.getUserId().equals(userId))
-                .findFirst();
-        } catch (IOException e) {
-            log.error("Ошибка при получении пользователя", e);
-            return Optional.empty();
-        }
+        return userRepository.findByUserId(userId);
     }
     
     /**
      * Получает всех пользователей
      */
     public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+    
+    /**
+     * Обновляет данные пользователя
+     */
+    @Transactional
+    public void updateUser(User user) {
         try {
-            return jsonFileUtil.readFromFile(usersFile, User.class);
-        } catch (IOException e) {
-            log.error("Ошибка при получении всех пользователей", e);
-            return new ArrayList<>();
+            Optional<User> existingUserOpt = userRepository.findByUserId(user.getUserId());
+            if (existingUserOpt.isPresent()) {
+                User existingUser = existingUserOpt.get();
+                // Обновляем все поля
+                existingUser.setUsername(user.getUsername());
+                existingUser.setFirstName(user.getFirstName());
+                existingUser.setLastName(user.getLastName());
+                existingUser.setRegisteredAt(user.getRegisteredAt());
+                existingUser.setFirstActivityAt(user.getFirstActivityAt());
+                existingUser.setLastActivityAt(user.getLastActivityAt());
+                existingUser.setQuestionsCount(user.getQuestionsCount());
+                existingUser.setTotalMessages(user.getTotalMessages());
+                existingUser.setSessionsCount(user.getSessionsCount());
+                existingUser.setIsReturningUser(user.getIsReturningUser());
+                existingUser.setLastReminderSentAt(user.getLastReminderSentAt());
+                
+                userRepository.save(existingUser);
+                log.debug("Обновлен пользователь в БД {}", user.getUserId());
+            } else {
+                // Если пользователя нет, создаем нового
+                userRepository.save(user);
+                log.debug("Создан новый пользователь в БД {}", user.getUserId());
+            }
+        } catch (Exception e) {
+            log.error("Ошибка при обновлении пользователя в БД", e);
         }
     }
 }
-

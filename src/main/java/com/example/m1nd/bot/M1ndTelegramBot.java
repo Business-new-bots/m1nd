@@ -2,6 +2,7 @@ package com.example.m1nd.bot;
 
 import com.example.m1nd.config.TelegramBotConfig;
 import com.example.m1nd.service.AdminService;
+import com.example.m1nd.service.FeedbackService;
 import com.example.m1nd.service.LLMService;
 import com.example.m1nd.service.StatisticsService;
 import com.example.m1nd.service.UserService;
@@ -25,6 +26,10 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import reactor.core.publisher.Mono;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @Component
 @RequiredArgsConstructor
@@ -38,14 +43,26 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private final WorkingApiService workingApiService;
     private final StatisticsService statisticsService;
     private final AdminService adminService;
+    private final FeedbackService feedbackService;
+    private final com.example.m1nd.service.SummaryService summaryService;
     
     @Value("${llm.api.use-llm-service:true}")
     private boolean useLlmService;
+    
+    @Value("${app.feedback.delay-minutes:10}")
+    private int feedbackDelayMinutes;
+    
+    // Планировщик для отправки опросов
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
     
     // Храним состояние ожидания username для добавления админа
     private final java.util.Map<Long, Boolean> waitingForAdminUsername = new java.util.concurrent.ConcurrentHashMap<>();
     // Храним состояние ожидания username для удаления админа
     private final java.util.Map<Long, Boolean> waitingForRemoveAdminUsername = new java.util.concurrent.ConcurrentHashMap<>();
+    // Храним последний вопрос пользователя для опроса
+    private final java.util.Map<Long, String> lastUserQuestion = new java.util.concurrent.ConcurrentHashMap<>();
+    // Храним состояние ожидания ответа на опрос
+    private final java.util.Map<Long, String> waitingForFeedback = new java.util.concurrent.ConcurrentHashMap<>();
     
     @Override
     public String getBotUsername() {
@@ -64,9 +81,24 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             : "null";
         logger.info("Бот инициализирован. Username: {}, Token: {}", 
             botConfig.getUsername(), tokenPreview);
+        logger.info("Задержка перед отправкой опроса: {} минут", feedbackDelayMinutes);
         
         // Вебхук теперь удаляется в TelegramBotConfiguration перед регистрацией бота
         logger.info("Бот готов к получению обновлений. Ожидаю команды /start...");
+    }
+    
+    @PreDestroy
+    public void destroy() {
+        logger.info("Завершение работы бота, закрытие планировщика...");
+        scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
     
     @Override
@@ -95,6 +127,10 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 // Обработка команды /stats (только для администраторов)
                 logger.info("Обработка команды /stats");
                 handleStatsCommand(update);
+            } else if (normalizedText.startsWith("/summary")) {
+                // Обработка команды /summary (для всех пользователей)
+                logger.info("Обработка команды /summary");
+                handleSummaryCommand(update);
         } else if (normalizedText.startsWith("/addadmin")) {
             // Обработка команды /addadmin (только для администраторов)
             logger.info("Обработка команды /addadmin");
@@ -114,6 +150,10 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 // Обрабатываем username для удаления админа
                 handleRemoveAdminUsername(update, messageText);
                 waitingForRemoveAdminUsername.remove(userId);
+            } else if (waitingForFeedback.getOrDefault(userId, "").equals("comment")) {
+                // Обрабатываем комментарий к опросу
+                handleFeedbackComment(update, messageText);
+                waitingForFeedback.remove(userId);
             } else {
                 // Обработка обычных сообщений (вопросов)
                 logger.info("Обработка вопроса: {}", messageText);
@@ -196,6 +236,20 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 logger.info("Получен ответ, длина: {} символов", answer.length());
                 sendLongMessage(chatId, answer, isAdmin);
                 userService.incrementQuestionsCount(userId);
+                
+                // Сохраняем вопрос для опроса
+                lastUserQuestion.put(userId, messageText);
+                
+                // Планируем отправку опроса через N минут
+                scheduler.schedule(() -> {
+                    // Проверяем, что пользователь еще не ответил на опрос
+                    if (lastUserQuestion.containsKey(userId) && 
+                        !waitingForFeedback.containsKey(userId)) {
+                        sendFeedbackRequest(chatId, userId);
+                    }
+                }, feedbackDelayMinutes, TimeUnit.MINUTES);
+                
+                logger.info("Запланирован опрос для пользователя {} через {} минут", userId, feedbackDelayMinutes);
                 logger.info("Ответ отправлен пользователю {}: {}", userId, answer.substring(0, Math.min(50, answer.length())));
             },
             error -> {
@@ -472,6 +526,12 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         
         logger.info("Обработка callback: {} от пользователя {}", data, username);
         
+        // Обработка опросов (доступны всем пользователям)
+        if (data != null && data.startsWith("feedback_")) {
+            handleFeedbackCallback(callbackQuery, data);
+            return;
+        }
+        
         // Проверяем, является ли пользователь администратором
         if (username == null || !adminService.isAdmin(username)) {
             sendCallbackAnswer(callbackQuery.getId(), "❌ У вас нет доступа к этой функции.");
@@ -535,6 +595,28 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             // Показываем список админов
             handleListAdmins(chatId);
             sendCallbackAnswer(callbackQuery.getId(), "✅ Список отправлен");
+        } else if ("view_feedbacks".equals(data)) {
+            // Показываем опросы
+            handleViewFeedbacks(chatId);
+            sendCallbackAnswer(callbackQuery.getId(), "✅ Опросы отправлены");
+        } else if ("admin_activity".equals(data)) {
+            // Показываем выбор даты для просмотра активности
+            handleActivityDateSelection(chatId);
+            sendCallbackAnswer(callbackQuery.getId(), "✅ Выберите дату");
+        } else if (data != null && data.startsWith("activity_date:")) {
+            // Обработка выбора даты
+            String dateStr = data.substring("activity_date:".length());
+            handleActivityDateSelected(chatId, dateStr);
+            sendCallbackAnswer(callbackQuery.getId(), "✅");
+        } else if (data != null && data.startsWith("activity_user:")) {
+            // Обработка выбора пользователя
+            String[] parts = data.substring("activity_user:".length()).split(":");
+            if (parts.length == 2) {
+                String dateStr = parts[0];
+                Long targetUserId = Long.parseLong(parts[1]);
+                handleActivityUserSelected(chatId, dateStr, targetUserId);
+                sendCallbackAnswer(callbackQuery.getId(), "✅");
+            }
         } else if ("remove_admin_prompt".equals(data)) {
             // Запрос на удаление админа - устанавливаем флаг ожидания
             waitingForRemoveAdminUsername.put(userId, true);
@@ -568,7 +650,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
      */
     private void handleAddAdminCommand(Update update, String messageText) {
         String username = update.getMessage().getFrom().getUserName();
-        Long userId = update.getMessage().getFrom().getId();
         Long chatId = update.getMessage().getChatId();
         
         // Проверяем, является ли пользователь администратором
@@ -812,6 +893,14 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         removeAdminButton.setText("➖ Удалить админа");
         removeAdminButton.setCallbackData("remove_admin_prompt");
         
+        InlineKeyboardButton feedbacksButton = new InlineKeyboardButton();
+        feedbacksButton.setText("📝 Опросы");
+        feedbacksButton.setCallbackData("view_feedbacks");
+        
+        InlineKeyboardButton activityButton = new InlineKeyboardButton();
+        activityButton.setText("📈 Активность");
+        activityButton.setCallbackData("admin_activity");
+        
         InlineKeyboardButton backButton = new InlineKeyboardButton();
         backButton.setText("◀️ Назад");
         backButton.setCallbackData("back_to_main");
@@ -826,17 +915,271 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         row3.add(removeAdminButton);
         
         List<InlineKeyboardButton> row4 = new ArrayList<>();
-        row4.add(backButton);
+        row4.add(feedbacksButton);
+        
+        List<InlineKeyboardButton> row5 = new ArrayList<>();
+        row5.add(activityButton);
+        
+        List<InlineKeyboardButton> row6 = new ArrayList<>();
+        row6.add(backButton);
         
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
         keyboard.add(row1);
         keyboard.add(row2);
         keyboard.add(row3);
         keyboard.add(row4);
+        keyboard.add(row5);
+        keyboard.add(row6);
         
         markup.setKeyboard(keyboard);
         logger.debug("Меню администратора создано");
         return markup;
+    }
+    
+    /**
+     * Отправляет запрос на опрос пользователю
+     */
+    private void sendFeedbackRequest(Long chatId, Long userId) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText("💬 Понравилось ли вам общение? Принесло ли оно пользу?");
+        
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        
+        // Кнопки для оценки
+        List<InlineKeyboardButton> row1 = new ArrayList<>();
+        InlineKeyboardButton likeButton = new InlineKeyboardButton();
+        likeButton.setText("👍 Понравилось");
+        likeButton.setCallbackData("feedback_like");
+        
+        InlineKeyboardButton dislikeButton = new InlineKeyboardButton();
+        dislikeButton.setText("👎 Не понравилось");
+        dislikeButton.setCallbackData("feedback_dislike");
+        row1.add(likeButton);
+        row1.add(dislikeButton);
+        
+        // Кнопки для полезности
+        List<InlineKeyboardButton> row2 = new ArrayList<>();
+        InlineKeyboardButton usefulButton = new InlineKeyboardButton();
+        usefulButton.setText("✅ Принесло пользу");
+        usefulButton.setCallbackData("feedback_useful");
+        
+        InlineKeyboardButton notUsefulButton = new InlineKeyboardButton();
+        notUsefulButton.setText("❌ Не принесло пользу");
+        notUsefulButton.setCallbackData("feedback_not_useful");
+        row2.add(usefulButton);
+        row2.add(notUsefulButton);
+        
+        // Кнопка для комментария
+        List<InlineKeyboardButton> row3 = new ArrayList<>();
+        InlineKeyboardButton commentButton = new InlineKeyboardButton();
+        commentButton.setText("💭 Оставить комментарий");
+        commentButton.setCallbackData("feedback_comment");
+        row3.add(commentButton);
+        
+        keyboard.add(row1);
+        keyboard.add(row2);
+        keyboard.add(row3);
+        markup.setKeyboard(keyboard);
+        message.setReplyMarkup(markup);
+        
+        try {
+            execute(message);
+            waitingForFeedback.put(userId, "waiting");  // Устанавливаем флаг ожидания
+            logger.info("Опрос отправлен пользователю {}", userId);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке опроса", e);
+        }
+    }
+    
+    /**
+     * Обрабатывает callback от кнопок опроса
+     */
+    private void handleFeedbackCallback(CallbackQuery callbackQuery, String data) {
+        Long userId = callbackQuery.getFrom().getId();
+        String username = callbackQuery.getFrom().getUserName();
+        String firstName = callbackQuery.getFrom().getFirstName();
+        Long chatId = callbackQuery.getMessage().getChatId();
+        
+        String question = lastUserQuestion.getOrDefault(userId, "Неизвестный вопрос");
+        
+        if ("feedback_like".equals(data)) {
+            // Сохраняем положительную оценку
+            feedbackService.saveFeedback(userId, username, firstName, 5, null, null, question);
+            sendCallbackAnswer(callbackQuery.getId(), "✅ Спасибо за оценку!");
+            
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("Спасибо за обратную связь! 🙏");
+            try {
+                execute(message);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения", e);
+            }
+            
+            waitingForFeedback.remove(userId);
+            lastUserQuestion.remove(userId);
+            
+        } else if ("feedback_dislike".equals(data)) {
+            feedbackService.saveFeedback(userId, username, firstName, 1, null, null, question);
+            sendCallbackAnswer(callbackQuery.getId(), "✅ Спасибо за оценку!");
+            
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("Спасибо за обратную связь! 🙏\n\nМы учтем ваше мнение для улучшения сервиса.");
+            try {
+                execute(message);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения", e);
+            }
+            
+            waitingForFeedback.remove(userId);
+            lastUserQuestion.remove(userId);
+            
+        } else if ("feedback_useful".equals(data)) {
+            feedbackService.saveFeedback(userId, username, firstName, null, true, null, question);
+            sendCallbackAnswer(callbackQuery.getId(), "✅ Спасибо!");
+            
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("Спасибо за обратную связь! 🙏");
+            try {
+                execute(message);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения", e);
+            }
+            
+            waitingForFeedback.remove(userId);
+            lastUserQuestion.remove(userId);
+            
+        } else if ("feedback_not_useful".equals(data)) {
+            feedbackService.saveFeedback(userId, username, firstName, null, false, null, question);
+            sendCallbackAnswer(callbackQuery.getId(), "✅ Спасибо!");
+            
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("Спасибо за обратную связь! 🙏\n\nМы учтем ваше мнение для улучшения сервиса.");
+            try {
+                execute(message);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения", e);
+            }
+            
+            waitingForFeedback.remove(userId);
+            lastUserQuestion.remove(userId);
+            
+        } else if ("feedback_comment".equals(data)) {
+            // Запрашиваем комментарий
+            waitingForFeedback.put(userId, "comment");
+            sendCallbackAnswer(callbackQuery.getId(), "✅ Введите комментарий");
+            
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("💭 Пожалуйста, напишите ваш комментарий:");
+            try {
+                execute(message);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения", e);
+            }
+        }
+    }
+    
+    /**
+     * Обрабатывает комментарий к опросу
+     */
+    private void handleFeedbackComment(Update update, String comment) {
+        Long userId = update.getMessage().getFrom().getId();
+        String username = update.getMessage().getFrom().getUserName();
+        String firstName = update.getMessage().getFrom().getFirstName();
+        String question = lastUserQuestion.getOrDefault(userId, "Неизвестный вопрос");
+        
+        feedbackService.saveFeedback(userId, username, firstName, null, null, comment, question);
+        
+        SendMessage message = new SendMessage();
+        message.setChatId(update.getMessage().getChatId().toString());
+        message.setText("✅ Спасибо за комментарий!");
+        
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке сообщения", e);
+        }
+        
+        lastUserQuestion.remove(userId);
+    }
+    
+    /**
+     * Показывает опросы администратору
+     */
+    private void handleViewFeedbacks(Long chatId) {
+        List<com.example.m1nd.model.Feedback> feedbacks = feedbackService.getRecentFeedbacks(30);  // За последние 30 дней
+        
+        if (feedbacks.isEmpty()) {
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("📝 Опросов пока нет.");
+            message.setReplyMarkup(createAdminMenuKeyboard());
+            try {
+                execute(message);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения", e);
+            }
+            return;
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("📝 Опросы пользователей (последние 30 дней):\n\n");
+        
+        for (com.example.m1nd.model.Feedback feedback : feedbacks) {
+            sb.append("👤 ").append(feedback.getUsername() != null ? feedback.getUsername() : feedback.getFirstName())
+              .append(" (").append(feedback.getUserId()).append(")\n");
+            
+            if (feedback.getRating() != null) {
+                sb.append("⭐ Оценка: ").append(feedback.getRating()).append("/5\n");
+            }
+            
+            if (feedback.getWasUseful() != null) {
+                sb.append("💡 Полезно: ").append(feedback.getWasUseful() ? "Да" : "Нет").append("\n");
+            }
+            
+            if (feedback.getComment() != null && !feedback.getComment().isEmpty()) {
+                sb.append("💭 Комментарий: ").append(feedback.getComment()).append("\n");
+            }
+            
+            if (feedback.getQuestion() != null && !feedback.getQuestion().isEmpty()) {
+                String questionPreview = feedback.getQuestion().length() > 50 
+                    ? feedback.getQuestion().substring(0, 50) + "..." 
+                    : feedback.getQuestion();
+                sb.append("❓ Вопрос: ").append(questionPreview).append("\n");
+            }
+            
+            sb.append("📅 ").append(feedback.getCreatedAt().toLocalDate()).append("\n\n");
+        }
+        
+        // Разбиваем на части если длинно
+        sendLongMessage(chatId, sb.toString(), true);
+    }
+    
+    /**
+     * Отправляет напоминание пользователю
+     */
+    public void sendReminderMessage(Long userId, String message) {
+        try {
+            SendMessage sendMessage = new SendMessage();
+            sendMessage.setChatId(userId.toString());
+            sendMessage.setText(message);
+            
+            execute(sendMessage);
+            logger.info("Напоминание отправлено пользователю {}", userId);
+        } catch (TelegramApiException e) {
+            // Если пользователь заблокировал бота, это нормально
+            if (e.getMessage() != null && e.getMessage().contains("blocked")) {
+                logger.debug("Пользователь {} заблокировал бота", userId);
+            } else {
+                logger.error("Ошибка при отправке напоминания пользователю {}", userId, e);
+            }
+        }
     }
     
     /**
@@ -851,6 +1194,232 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             execute(answer);
         } catch (TelegramApiException e) {
             logger.error("Ошибка при отправке ответа на callback", e);
+        }
+    }
+    
+    /**
+     * Обрабатывает команду /summary - создаёт сводку диалога
+     */
+    private void handleSummaryCommand(Update update) {
+        Long chatId = update.getMessage().getChatId();
+        Long userId = update.getMessage().getFrom().getId();
+        String username = update.getMessage().getFrom().getUserName();
+        
+        // Отслеживаем активность
+        userService.trackUserActivity(userId);
+        
+        SendMessage processingMessage = new SendMessage();
+        processingMessage.setChatId(chatId.toString());
+        processingMessage.setText("⏳ Создаю сводку диалога...");
+        
+        try {
+            execute(processingMessage);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке сообщения", e);
+        }
+        
+        // Создаём сводку
+        summaryService.createAndSaveSummary(userId, username)
+            .subscribe(
+                result -> {
+                    SendMessage resultMessage = new SendMessage();
+                    resultMessage.setChatId(chatId.toString());
+                    resultMessage.setText(result);
+                    
+                    try {
+                        execute(resultMessage);
+                    } catch (TelegramApiException e) {
+                        logger.error("Ошибка при отправке результата сводки", e);
+                    }
+                },
+                error -> {
+                    logger.error("Ошибка при создании сводки", error);
+                    SendMessage errorMessage = new SendMessage();
+                    errorMessage.setChatId(chatId.toString());
+                    errorMessage.setText("❌ Ошибка при создании сводки: " + error.getMessage());
+                    
+                    try {
+                        execute(errorMessage);
+                    } catch (TelegramApiException e) {
+                        logger.error("Ошибка при отправке сообщения об ошибке", e);
+                    }
+                }
+            );
+    }
+    
+    /**
+     * Показывает выбор даты для просмотра активности
+     */
+    private void handleActivityDateSelection(Long chatId) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText("📅 Выберите дату для просмотра активности:");
+        
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        
+        // Предлагаем последние 7 дней
+        java.time.LocalDate today = java.time.LocalDate.now();
+        for (int i = 0; i < 7; i++) {
+            java.time.LocalDate date = today.minusDays(i);
+            String dateStr = date.toString();
+            String displayText = i == 0 ? "Сегодня" : 
+                               i == 1 ? "Вчера" : 
+                               date.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM"));
+            
+            InlineKeyboardButton button = new InlineKeyboardButton();
+            button.setText(displayText);
+            button.setCallbackData("activity_date:" + dateStr);
+            
+            List<InlineKeyboardButton> row = new ArrayList<>();
+            row.add(button);
+            keyboard.add(row);
+        }
+        
+        // Кнопка "Назад"
+        InlineKeyboardButton backButton = new InlineKeyboardButton();
+        backButton.setText("◀️ Назад");
+        backButton.setCallbackData("admin_menu");
+        List<InlineKeyboardButton> backRow = new ArrayList<>();
+        backRow.add(backButton);
+        keyboard.add(backRow);
+        
+        markup.setKeyboard(keyboard);
+        message.setReplyMarkup(markup);
+        
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке выбора даты", e);
+        }
+    }
+    
+    /**
+     * Обрабатывает выбранную дату и показывает список активных пользователей
+     */
+    private void handleActivityDateSelected(Long chatId, String dateStr) {
+        try {
+            java.time.LocalDate date = java.time.LocalDate.parse(dateStr);
+            List<com.example.m1nd.service.SummaryService.UserActivityInfo> users = 
+                summaryService.getActiveUsersByDate(date);
+            
+            if (users.isEmpty()) {
+                SendMessage message = new SendMessage();
+                message.setChatId(chatId.toString());
+                message.setText("❌ На выбранную дату (" + dateStr + ") нет активности.");
+                message.setReplyMarkup(createAdminMenuKeyboard());
+                
+                try {
+                    execute(message);
+                } catch (TelegramApiException e) {
+                    logger.error("Ошибка при отправке сообщения", e);
+                }
+                return;
+            }
+            
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("👥 Активные пользователи на " + dateStr + ":\n\nВыберите пользователя:");
+            
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+            
+            for (com.example.m1nd.service.SummaryService.UserActivityInfo user : users) {
+                InlineKeyboardButton button = new InlineKeyboardButton();
+                String displayName = user.username != null ? "@" + user.username : "ID: " + user.userId;
+                button.setText(displayName);
+                button.setCallbackData("activity_user:" + dateStr + ":" + user.userId);
+                
+                List<InlineKeyboardButton> row = new ArrayList<>();
+                row.add(button);
+                keyboard.add(row);
+            }
+            
+            // Кнопка "Назад"
+            InlineKeyboardButton backButton = new InlineKeyboardButton();
+            backButton.setText("◀️ Назад");
+            backButton.setCallbackData("admin_activity");
+            List<InlineKeyboardButton> backRow = new ArrayList<>();
+            backRow.add(backButton);
+            keyboard.add(backRow);
+            
+            markup.setKeyboard(keyboard);
+            message.setReplyMarkup(markup);
+            
+            try {
+                execute(message);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке списка пользователей", e);
+            }
+        } catch (Exception e) {
+            logger.error("Ошибка при обработке выбранной даты", e);
+            SendMessage errorMessage = new SendMessage();
+            errorMessage.setChatId(chatId.toString());
+            errorMessage.setText("❌ Ошибка: неверный формат даты. Используйте ГГГГ-ММ-ДД");
+            
+            try {
+                execute(errorMessage);
+            } catch (TelegramApiException ex) {
+                logger.error("Ошибка при отправке сообщения об ошибке", ex);
+            }
+        }
+    }
+    
+    /**
+     * Показывает сводки активности выбранного пользователя
+     */
+    private void handleActivityUserSelected(Long chatId, String dateStr, Long userId) {
+        try {
+            java.time.LocalDate date = java.time.LocalDate.parse(dateStr);
+            List<com.example.m1nd.model.UserSessionSummary> summaries = 
+                summaryService.getSummariesByUserAndDate(userId, date);
+            
+            if (summaries.isEmpty()) {
+                SendMessage message = new SendMessage();
+                message.setChatId(chatId.toString());
+                message.setText("❌ Для выбранного пользователя на эту дату нет сводок.");
+                message.setReplyMarkup(createAdminMenuKeyboard());
+                
+                try {
+                    execute(message);
+                } catch (TelegramApiException e) {
+                    logger.error("Ошибка при отправке сообщения", e);
+                }
+                return;
+            }
+            
+            StringBuilder sb = new StringBuilder();
+            sb.append("📊 Сводки активности пользователя ");
+            if (summaries.get(0).getUsername() != null) {
+                sb.append("@").append(summaries.get(0).getUsername());
+            } else {
+                sb.append("ID: ").append(userId);
+            }
+            sb.append(" за ").append(dateStr).append(":\n\n");
+            
+            for (int i = 0; i < summaries.size(); i++) {
+                com.example.m1nd.model.UserSessionSummary summary = summaries.get(i);
+                sb.append("━━━━━━━━━━━━━━━━━━━━\n");
+                sb.append("📝 Сводка #").append(i + 1).append("\n\n");
+                sb.append("❓ ВОПРОС:\n");
+                sb.append(summary.getSummaryQuestion()).append("\n\n");
+                sb.append("💬 ОТВЕТ:\n");
+                sb.append(summary.getSummaryAnswer()).append("\n\n");
+            }
+            
+            // Разбиваем на части если длинно
+            sendLongMessage(chatId, sb.toString(), true);
+        } catch (Exception e) {
+            logger.error("Ошибка при показе сводок пользователя", e);
+            SendMessage errorMessage = new SendMessage();
+            errorMessage.setChatId(chatId.toString());
+            errorMessage.setText("❌ Ошибка при получении сводок: " + e.getMessage());
+            
+            try {
+                execute(errorMessage);
+            } catch (TelegramApiException ex) {
+                logger.error("Ошибка при отправке сообщения об ошибке", ex);
+            }
         }
     }
 }

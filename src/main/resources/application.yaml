@@ -3,6 +3,25 @@ spring:
     name: m1nd
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:}
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://dpg-d5sbefe3jp1c73ep952g-a.virginia-postgres.render.com:5432/m1nd_db}
+    username: ${SPRING_DATASOURCE_USERNAME:m1nd_db_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: none  # Отключаем Hibernate DDL, используем Liquibase
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+    enabled: ${LIQUIBASE_ENABLED:true}
+
 server:
   port: ${PORT:8080}
 
@@ -50,9 +69,13 @@ llm:
 
 app:
   data:
-    users-file: data/users.json
     prompt-file: prompt.txt
-    admins-file: data/admins.json  # Файл с администраторами (по username)
+  feedback:
+    delay-minutes: ${FEEDBACK_DELAY_MINUTES:10}  # Задержка перед отправкой опроса (в минутах)
+  reminder:
+    enabled: ${REMINDER_ENABLED:true}  # Включить/выключить напоминания
+    inactive-days: ${REMINDER_INACTIVE_DAYS:5}  # Количество дней неактивности перед напоминанием
+    cron: ${REMINDER_CRON:0 0 10 * * ?}  # Расписание (каждый день в 10:00)
 
 search:
   yandex:

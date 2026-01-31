@@ -7,6 +7,7 @@ import com.example.m1nd.config.TelegramBotConfig;
 
 @SpringBootApplication
 @EnableConfigurationProperties(TelegramBotConfig.class)
+@org.springframework.scheduling.annotation.EnableScheduling
 public class M1ndApplication {
 
 	public static void main(String[] args) {
