@@ -106,6 +106,7 @@ public class AdminService {
     
     /**
      * Удаляет администратора
+     *
      */
     @Transactional
     public boolean removeAdmin(String username) {
