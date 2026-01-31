@@ -5,6 +5,7 @@ import com.example.m1nd.service.AdminService;
 import com.example.m1nd.service.FeedbackService;
 import com.example.m1nd.service.LLMService;
 import com.example.m1nd.service.StatisticsService;
+import com.example.m1nd.service.SummaryService;
 import com.example.m1nd.service.UserService;
 import com.example.m1nd.service.WorkingApiService;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
@@ -44,7 +45,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private final StatisticsService statisticsService;
     private final AdminService adminService;
     private final FeedbackService feedbackService;
-    private final com.example.m1nd.service.SummaryService summaryService;
+    private final SummaryService summaryService;
     
     @Value("${llm.api.use-llm-service:true}")
     private boolean useLlmService;
