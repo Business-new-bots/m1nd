@@ -30,6 +30,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 @Component
@@ -53,6 +54,12 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     @Value("${app.feedback.delay-minutes:10}")
     private int feedbackDelayMinutes;
     
+    @Value("${app.summary.auto-create-enabled:true}")
+    private boolean autoSummaryEnabled;
+    
+    @Value("${app.summary.delay-minutes:5}")
+    private int summaryDelayMinutes;
+    
     // Планировщик для отправки опросов
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
     
@@ -64,6 +71,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private final java.util.Map<Long, String> lastUserQuestion = new java.util.concurrent.ConcurrentHashMap<>();
     // Храним состояние ожидания ответа на опрос
     private final java.util.Map<Long, String> waitingForFeedback = new java.util.concurrent.ConcurrentHashMap<>();
+    // Храним запланированные задачи создания сводки для каждого пользователя
+    private final java.util.Map<Long, ScheduledFuture<?>> scheduledSummaries = new java.util.concurrent.ConcurrentHashMap<>();
     
     @Override
     public String getBotUsername() {
@@ -83,6 +92,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         logger.info("Бот инициализирован. Username: {}, Token: {}", 
             botConfig.getUsername(), tokenPreview);
         logger.info("Задержка перед отправкой опроса: {} минут", feedbackDelayMinutes);
+        logger.info("Автоматическое создание сводки: {} (задержка: {} минут)", 
+            autoSummaryEnabled ? "включено" : "выключено", summaryDelayMinutes);
         
         // Вебхук теперь удаляется в TelegramBotConfiguration перед регистрацией бота
         logger.info("Бот готов к получению обновлений. Ожидаю команды /start...");
@@ -207,6 +218,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         // Отслеживаем активность пользователя
         userService.trackUserActivity(userId);
         
+        // Отменяем предыдущую запланированную сводку, если она есть
+        cancelScheduledSummary(userId);
+        
         // Отправляем сообщение о том, что обрабатываем запрос
         SendMessage processingMessage = new SendMessage();
         processingMessage.setChatId(chatId.toString());
@@ -249,6 +263,11 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                         sendFeedbackRequest(chatId, userId);
                     }
                 }, feedbackDelayMinutes, TimeUnit.MINUTES);
+                
+                // Планируем автоматическое создание сводки через N минут после последнего сообщения
+                if (autoSummaryEnabled) {
+                    scheduleAutoSummary(userId, username);
+                }
                 
                 logger.info("Запланирован опрос для пользователя {} через {} минут", userId, feedbackDelayMinutes);
                 logger.info("Ответ отправлен пользователю {}: {}", userId, answer.substring(0, Math.min(50, answer.length())));
@@ -1209,6 +1228,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         // Отслеживаем активность
         userService.trackUserActivity(userId);
         
+        // Отменяем автоматическую задачу, если она запланирована
+        cancelScheduledSummary(userId);
+        
         SendMessage processingMessage = new SendMessage();
         processingMessage.setChatId(chatId.toString());
         processingMessage.setText("⏳ Создаю сводку диалога...");
@@ -1422,6 +1444,63 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 logger.error("Ошибка при отправке сообщения об ошибке", ex);
             }
         }
+    }
+    
+    /**
+     * Планирует автоматическое создание сводки через N минут после последнего сообщения
+     */
+    private void scheduleAutoSummary(Long userId, String username) {
+        // Отменяем предыдущую задачу, если она есть
+        cancelScheduledSummary(userId);
+        
+        // Планируем новую задачу
+        ScheduledFuture<?> future = scheduler.schedule(() -> {
+            try {
+                logger.info("Автоматически создаю сводку для пользователя {} через {} минут после последнего сообщения", 
+                    userId, summaryDelayMinutes);
+                createSummarySilently(userId, username);
+            } catch (Exception e) {
+                logger.error("Ошибка при автоматическом создании сводки для пользователя {}", userId, e);
+            } finally {
+                // Удаляем задачу из Map после выполнения
+                scheduledSummaries.remove(userId);
+            }
+        }, summaryDelayMinutes, TimeUnit.MINUTES);
+        
+        scheduledSummaries.put(userId, future);
+        logger.info("Запланировано автоматическое создание сводки для пользователя {} через {} минут", 
+            userId, summaryDelayMinutes);
+    }
+    
+    /**
+     * Отменяет запланированное создание сводки для пользователя
+     */
+    private void cancelScheduledSummary(Long userId) {
+        ScheduledFuture<?> future = scheduledSummaries.remove(userId);
+        if (future != null && !future.isDone()) {
+            future.cancel(false);
+            logger.debug("Отменено запланированное создание сводки для пользователя {}", userId);
+        }
+    }
+    
+    /**
+     * Создает сводку без отправки сообщений пользователю (тихий режим)
+     */
+    private void createSummarySilently(Long userId, String username) {
+        // Проверяем, есть ли история диалога через SummaryService
+        // SummaryService использует ConversationService внутри, так что проверка будет там
+        logger.info("Начинаем автоматическое создание сводки для пользователя {} (без уведомления)", userId);
+        
+        // Создаём сводку без отправки сообщений пользователю
+        summaryService.createAndSaveSummary(userId, username)
+            .subscribe(
+                result -> {
+                    logger.info("Автоматическая сводка успешно создана для пользователя {}: {}", userId, result);
+                },
+                error -> {
+                    logger.error("Ошибка при автоматическом создании сводки для пользователя {}", userId, error);
+                }
+            );
     }
 }
 

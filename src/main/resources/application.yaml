@@ -72,6 +72,9 @@ app:
     prompt-file: prompt.txt
   feedback:
     delay-minutes: ${FEEDBACK_DELAY_MINUTES:10}  # Задержка перед отправкой опроса (в минутах)
+  summary:
+    auto-create-enabled: ${AUTO_SUMMARY_ENABLED:true}  # Включить автоматическое создание сводки
+    delay-minutes: ${SUMMARY_DELAY_MINUTES:5}  # Задержка после окончания сессии (в минутах)
   reminder:
     enabled: ${REMINDER_ENABLED:true}  # Включить/выключить напоминания
     inactive-days: ${REMINDER_INACTIVE_DAYS:5}  # Количество дней неактивности перед напоминанием
