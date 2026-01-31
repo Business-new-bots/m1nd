@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog 
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Создание таблицы user_session_summaries -->
+    <changeSet id="004_create_table_user_session_summaries" author="m1nd">
+        <preConditions onFail="CONTINUE">
+            <not>
+                <tableExists tableName="user_session_summaries"/>
+            </not>
+        </preConditions>
+        <createTable tableName="user_session_summaries" remarks="Сводки сессий пользователей">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="username" type="VARCHAR(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="summary_question" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="summary_answer" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="session_start_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="true"/>
+            </column>
+            <column name="session_end_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        
+        <createIndex indexName="idx_summaries_user_id" tableName="user_session_summaries">
+            <column name="user_id"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_summaries_created_at" tableName="user_session_summaries">
+            <column name="created_at"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_summaries_user_date" tableName="user_session_summaries">
+            <column name="user_id"/>
+            <column name="created_at"/>
+        </createIndex>
+        
+        <addForeignKeyConstraint 
+            baseTableName="user_session_summaries" 
+            baseColumnNames="user_id" 
+            constraintName="fk_summaries_user_id"
+            referencedTableName="users" 
+            referencedColumnNames="user_id"
+            onDelete="CASCADE"/>
+        
+        <rollback>
+            <dropTable tableName="user_session_summaries"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
