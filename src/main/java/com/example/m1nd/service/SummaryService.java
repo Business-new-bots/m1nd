@@ -27,6 +27,7 @@ public class SummaryService {
     
     /**
      * Создаёт сводку диалога пользователя и сохраняет в БД
+     *
      */
     @Transactional
     public Mono<String> createAndSaveSummary(Long userId, String username) {
