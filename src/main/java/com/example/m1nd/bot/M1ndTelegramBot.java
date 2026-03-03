@@ -71,6 +71,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private final java.util.Map<Long, String> lastUserQuestion = new java.util.concurrent.ConcurrentHashMap<>();
     // Храним состояние ожидания ответа на опрос
     private final java.util.Map<Long, String> waitingForFeedback = new java.util.concurrent.ConcurrentHashMap<>();
+    // Храним выбранный рейтинг до получения обязательного комментария
+    private final java.util.Map<Long, Integer> pendingRatings = new java.util.concurrent.ConcurrentHashMap<>();
     // Храним запланированные задачи создания сводки для каждого пользователя
     private final java.util.Map<Long, ScheduledFuture<?>> scheduledSummaries = new java.util.concurrent.ConcurrentHashMap<>();
     
@@ -165,7 +167,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             } else if (waitingForFeedback.getOrDefault(userId, "").equals("comment")) {
                 // Обрабатываем комментарий к опросу
                 handleFeedbackComment(update, messageText);
-                waitingForFeedback.remove(userId);
             } else {
                 // Обработка обычных сообщений (вопросов)
                 logger.info("Обработка вопроса: {}", messageText);
@@ -962,45 +963,33 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private void sendFeedbackRequest(Long chatId, Long userId) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText("💬 Понравилось ли вам общение? Принесло ли оно пользу?");
+        message.setText("💬 Оцени, пожалуйста, ответ по шкале от 1 до 10.\n\n" +
+            "10 — всё идеально и максимально полезно.\n" +
+            "Если это не 10, напиши потом короткий комментарий, что можно улучшить.");
         
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
         
-        // Кнопки для оценки
+        // Кнопки с рейтингом 1–5
         List<InlineKeyboardButton> row1 = new ArrayList<>();
-        InlineKeyboardButton likeButton = new InlineKeyboardButton();
-        likeButton.setText("👍 Понравилось");
-        likeButton.setCallbackData("feedback_like");
+        for (int i = 1; i <= 5; i++) {
+            InlineKeyboardButton button = new InlineKeyboardButton();
+            button.setText(String.valueOf(i));
+            button.setCallbackData("feedback_rating_" + i);
+            row1.add(button);
+        }
         
-        InlineKeyboardButton dislikeButton = new InlineKeyboardButton();
-        dislikeButton.setText("👎 Не понравилось");
-        dislikeButton.setCallbackData("feedback_dislike");
-        row1.add(likeButton);
-        row1.add(dislikeButton);
-        
-        // Кнопки для полезности
+        // Кнопки с рейтингом 6–10
         List<InlineKeyboardButton> row2 = new ArrayList<>();
-        InlineKeyboardButton usefulButton = new InlineKeyboardButton();
-        usefulButton.setText("✅ Принесло пользу");
-        usefulButton.setCallbackData("feedback_useful");
-        
-        InlineKeyboardButton notUsefulButton = new InlineKeyboardButton();
-        notUsefulButton.setText("❌ Не принесло пользу");
-        notUsefulButton.setCallbackData("feedback_not_useful");
-        row2.add(usefulButton);
-        row2.add(notUsefulButton);
-        
-        // Кнопка для комментария
-        List<InlineKeyboardButton> row3 = new ArrayList<>();
-        InlineKeyboardButton commentButton = new InlineKeyboardButton();
-        commentButton.setText("💭 Оставить комментарий");
-        commentButton.setCallbackData("feedback_comment");
-        row3.add(commentButton);
+        for (int i = 6; i <= 10; i++) {
+            InlineKeyboardButton button = new InlineKeyboardButton();
+            button.setText(String.valueOf(i));
+            button.setCallbackData("feedback_rating_" + i);
+            row2.add(button);
+        }
         
         keyboard.add(row1);
         keyboard.add(row2);
-        keyboard.add(row3);
         markup.setKeyboard(keyboard);
         message.setReplyMarkup(markup);
         
@@ -1024,83 +1013,49 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         
         String question = lastUserQuestion.getOrDefault(userId, "Неизвестный вопрос");
         
-        if ("feedback_like".equals(data)) {
-            // Сохраняем положительную оценку
-            feedbackService.saveFeedback(userId, username, firstName, 5, null, null, question);
-            sendCallbackAnswer(callbackQuery.getId(), "✅ Спасибо за оценку!");
-            
-            SendMessage message = new SendMessage();
-            message.setChatId(chatId.toString());
-            message.setText("Спасибо за обратную связь! 🙏");
+        if (data != null && data.startsWith("feedback_rating_")) {
+            int rating;
             try {
-                execute(message);
-            } catch (TelegramApiException e) {
-                logger.error("Ошибка при отправке сообщения", e);
+                rating = Integer.parseInt(data.substring("feedback_rating_".length()));
+            } catch (NumberFormatException e) {
+                logger.error("Некорректное значение рейтинга в callback: {}", data, e);
+                sendCallbackAnswer(callbackQuery.getId(), "❌ Некорректная оценка");
+                return;
             }
             
-            waitingForFeedback.remove(userId);
-            lastUserQuestion.remove(userId);
-            
-        } else if ("feedback_dislike".equals(data)) {
-            feedbackService.saveFeedback(userId, username, firstName, 1, null, null, question);
-            sendCallbackAnswer(callbackQuery.getId(), "✅ Спасибо за оценку!");
-            
-            SendMessage message = new SendMessage();
-            message.setChatId(chatId.toString());
-            message.setText("Спасибо за обратную связь! 🙏\n\nМы учтем ваше мнение для улучшения сервиса.");
-            try {
-                execute(message);
-            } catch (TelegramApiException e) {
-                logger.error("Ошибка при отправке сообщения", e);
-            }
-            
-            waitingForFeedback.remove(userId);
-            lastUserQuestion.remove(userId);
-            
-        } else if ("feedback_useful".equals(data)) {
-            feedbackService.saveFeedback(userId, username, firstName, null, true, null, question);
-            sendCallbackAnswer(callbackQuery.getId(), "✅ Спасибо!");
-            
-            SendMessage message = new SendMessage();
-            message.setChatId(chatId.toString());
-            message.setText("Спасибо за обратную связь! 🙏");
-            try {
-                execute(message);
-            } catch (TelegramApiException e) {
-                logger.error("Ошибка при отправке сообщения", e);
-            }
-            
-            waitingForFeedback.remove(userId);
-            lastUserQuestion.remove(userId);
-            
-        } else if ("feedback_not_useful".equals(data)) {
-            feedbackService.saveFeedback(userId, username, firstName, null, false, null, question);
-            sendCallbackAnswer(callbackQuery.getId(), "✅ Спасибо!");
-            
-            SendMessage message = new SendMessage();
-            message.setChatId(chatId.toString());
-            message.setText("Спасибо за обратную связь! 🙏\n\nМы учтем ваше мнение для улучшения сервиса.");
-            try {
-                execute(message);
-            } catch (TelegramApiException e) {
-                logger.error("Ошибка при отправке сообщения", e);
-            }
-            
-            waitingForFeedback.remove(userId);
-            lastUserQuestion.remove(userId);
-            
-        } else if ("feedback_comment".equals(data)) {
-            // Запрашиваем комментарий
-            waitingForFeedback.put(userId, "comment");
-            sendCallbackAnswer(callbackQuery.getId(), "✅ Введите комментарий");
-            
-            SendMessage message = new SendMessage();
-            message.setChatId(chatId.toString());
-            message.setText("💭 Пожалуйста, напишите ваш комментарий:");
-            try {
-                execute(message);
-            } catch (TelegramApiException e) {
-                logger.error("Ошибка при отправке сообщения", e);
+            if (rating == 10) {
+                // Для 10/10 комментарий не обязателен
+                feedbackService.saveFeedback(userId, username, firstName, rating, null, null, question);
+                sendCallbackAnswer(callbackQuery.getId(), "✅ Спасибо за оценку 10/10!");
+                
+                SendMessage message = new SendMessage();
+                message.setChatId(chatId.toString());
+                message.setText("Спасибо за отличную оценку! 🙏");
+                try {
+                    execute(message);
+                } catch (TelegramApiException e) {
+                    logger.error("Ошибка при отправке сообщения", e);
+                }
+                
+                waitingForFeedback.remove(userId);
+                pendingRatings.remove(userId);
+                lastUserQuestion.remove(userId);
+            } else {
+                // Для любой оценки ниже 10 требуем комментарий
+                pendingRatings.put(userId, rating);
+                waitingForFeedback.put(userId, "comment");
+                
+                sendCallbackAnswer(callbackQuery.getId(), "✅ Оценка " + rating + "/10 получена");
+                
+                SendMessage message = new SendMessage();
+                message.setChatId(chatId.toString());
+                message.setText("Спасибо за оценку " + rating + "/10.\n" +
+                    "Пожалуйста, напишите короткий комментарий: что можно улучшить, чтобы было 10/10?");
+                try {
+                    execute(message);
+                } catch (TelegramApiException e) {
+                    logger.error("Ошибка при отправке сообщения", e);
+                }
             }
         }
     }
@@ -1113,8 +1068,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         String username = update.getMessage().getFrom().getUserName();
         String firstName = update.getMessage().getFrom().getFirstName();
         String question = lastUserQuestion.getOrDefault(userId, "Неизвестный вопрос");
+        Integer rating = pendingRatings.getOrDefault(userId, null);
         
-        feedbackService.saveFeedback(userId, username, firstName, null, null, comment, question);
+        feedbackService.saveFeedback(userId, username, firstName, rating, null, comment, question);
         
         SendMessage message = new SendMessage();
         message.setChatId(update.getMessage().getChatId().toString());
@@ -1126,6 +1082,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             logger.error("Ошибка при отправке сообщения", e);
         }
         
+        waitingForFeedback.remove(userId);
+        pendingRatings.remove(userId);
         lastUserQuestion.remove(userId);
     }
     
@@ -1156,7 +1114,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
               .append(" (").append(feedback.getUserId()).append(")\n");
             
             if (feedback.getRating() != null) {
-                sb.append("⭐ Оценка: ").append(feedback.getRating()).append("/5\n");
+                sb.append("⭐ Оценка: ").append(feedback.getRating()).append("/10\n");
             }
             
             if (feedback.getWasUseful() != null) {
