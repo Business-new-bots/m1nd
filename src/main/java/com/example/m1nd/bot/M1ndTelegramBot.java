@@ -10,6 +10,9 @@ import com.example.m1nd.service.UserService;
 import com.example.m1nd.service.WorkingApiService;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 
@@ -145,7 +148,12 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 // Обработка команды /summary (для всех пользователей)
                 logger.info("Обработка команды /summary");
                 handleSummaryCommand(update);
-        } else if (normalizedText.startsWith("/addadmin")) {
+            } else if (normalizedText.startsWith("/menu")
+                    || "📋 Меню".equals(messageText)
+                    || "меню".equalsIgnoreCase(messageText)) {
+                logger.info("Обработка команды /menu");
+                handleMainMenuCommand(update);
+            } else if (normalizedText.startsWith("/addadmin")) {
             // Обработка команды /addadmin (только для администраторов)
             logger.info("Обработка команды /addadmin");
             handleAddAdminCommand(update, messageText);
@@ -207,6 +215,13 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         
         try {
             execute(message);
+            
+            // Отправляем главное меню в виде клавиатуры внизу экрана
+            SendMessage menuMessage = new SendMessage();
+            menuMessage.setChatId(chatId.toString());
+            menuMessage.setText("Главное меню");
+            menuMessage.setReplyMarkup(createMainReplyKeyboard());
+            execute(menuMessage);
         } catch (TelegramApiException e) {
             logger.error("Ошибка при отправке сообщения", e);
         }
@@ -553,6 +568,12 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             return;
         }
         
+        // Обработка главного меню (доступно всем пользователям)
+        if (data != null && data.startsWith("main_")) {
+            handleMainMenuCallback(callbackQuery, data);
+            return;
+        }
+        
         // Проверяем, является ли пользователь администратором
         if (username == null || !adminService.isAdmin(username)) {
             sendCallbackAnswer(callbackQuery.getId(), "❌ У вас нет доступа к этой функции.");
@@ -896,6 +917,89 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     }
     
     /**
+     * Создает главное меню в виде ReplyKeyboard, которое закреплено внизу экрана
+     */
+    private ReplyKeyboardMarkup createMainReplyKeyboard() {
+        ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
+        keyboardMarkup.setResizeKeyboard(true);
+        keyboardMarkup.setOneTimeKeyboard(false);
+        
+        List<KeyboardRow> rows = new ArrayList<>();
+        KeyboardRow row = new KeyboardRow();
+        row.add(new KeyboardButton("📋 Меню"));
+        rows.add(row);
+        
+        keyboardMarkup.setKeyboard(rows);
+        return keyboardMarkup;
+    }
+    
+    /**
+     * Создает инлайн-меню с основными разделами
+     */
+    private InlineKeyboardMarkup createMainMenuInlineKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        
+        // 🧠 Факты | 🎯 Задания дня | 🧩 Загадки и тесты
+        List<InlineKeyboardButton> row1 = new ArrayList<>();
+        InlineKeyboardButton factsButton = new InlineKeyboardButton();
+        factsButton.setText("🧠 Факты");
+        factsButton.setCallbackData("main_facts");
+        row1.add(factsButton);
+        
+        InlineKeyboardButton tasksButton = new InlineKeyboardButton();
+        tasksButton.setText("🎯 Задания дня");
+        tasksButton.setCallbackData("main_daily_tasks");
+        row1.add(tasksButton);
+        
+        InlineKeyboardButton puzzlesButton = new InlineKeyboardButton();
+        puzzlesButton.setText("🧩 Загадки и тесты");
+        puzzlesButton.setCallbackData("main_puzzles_tests");
+        row1.add(puzzlesButton);
+        
+        // 💡 Идеи и инсайты | 🚀 Мотивация | 🤖 AI-инструменты
+        List<InlineKeyboardButton> row2 = new ArrayList<>();
+        InlineKeyboardButton ideasButton = new InlineKeyboardButton();
+        ideasButton.setText("💡 Идеи и инсайты");
+        ideasButton.setCallbackData("main_ideas_insights");
+        row2.add(ideasButton);
+        
+        InlineKeyboardButton motivationButton = new InlineKeyboardButton();
+        motivationButton.setText("🚀 Мотивация");
+        motivationButton.setCallbackData("main_motivation");
+        row2.add(motivationButton);
+        
+        InlineKeyboardButton aiToolsButton = new InlineKeyboardButton();
+        aiToolsButton.setText("🤖 AI-инструменты");
+        aiToolsButton.setCallbackData("main_ai_tools");
+        row2.add(aiToolsButton);
+        
+        // 🎮 Игры | 🎲 Случайное | 📊 Мой прогресс
+        List<InlineKeyboardButton> row3 = new ArrayList<>();
+        InlineKeyboardButton gamesButton = new InlineKeyboardButton();
+        gamesButton.setText("🎮 Игры");
+        gamesButton.setCallbackData("main_games");
+        row3.add(gamesButton);
+        
+        InlineKeyboardButton randomButton = new InlineKeyboardButton();
+        randomButton.setText("🎲 Случайное");
+        randomButton.setCallbackData("main_random");
+        row3.add(randomButton);
+        
+        InlineKeyboardButton progressButton = new InlineKeyboardButton();
+        progressButton.setText("📊 Мой прогресс");
+        progressButton.setCallbackData("main_progress");
+        row3.add(progressButton);
+        
+        keyboard.add(row1);
+        keyboard.add(row2);
+        keyboard.add(row3);
+        
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+    
+    /**
      * Создает меню администратора
      */
     private InlineKeyboardMarkup createAdminMenuKeyboard() {
@@ -1057,6 +1161,75 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     logger.error("Ошибка при отправке сообщения", e);
                 }
             }
+        }
+    }
+    
+    /**
+     * Обрабатывает команду /menu и показ главного меню
+     */
+    private void handleMainMenuCommand(Update update) {
+        Long chatId = update.getMessage().getChatId();
+        
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText("Выбери раздел:");
+        message.setReplyMarkup(createMainMenuInlineKeyboard());
+        
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке главного меню", e);
+        }
+    }
+    
+    /**
+     * Обрабатывает callback от кнопок главного меню
+     */
+    private void handleMainMenuCallback(CallbackQuery callbackQuery, String data) {
+        Long chatId = callbackQuery.getMessage().getChatId();
+        
+        String responseText;
+        switch (data) {
+            case "main_facts":
+                responseText = "🧠 Факты\n\nЗдесь будут интересные и полезные факты. Раздел скоро заработает.";
+                break;
+            case "main_daily_tasks":
+                responseText = "🎯 Задания дня\n\nЗдесь будут короткие задания на день. Раздел скоро заработает.";
+                break;
+            case "main_puzzles_tests":
+                responseText = "🧩 Загадки и тесты\n\nЗдесь будут упражнения для ума. Раздел скоро заработает.";
+                break;
+            case "main_ideas_insights":
+                responseText = "💡 Идеи и инсайты\n\nЗдесь будут идеи для роста и инсайты. Раздел скоро заработает.";
+                break;
+            case "main_motivation":
+                responseText = "🚀 Мотивация\n\nЗдесь будет мотивационный контент. Раздел скоро заработает.";
+                break;
+            case "main_ai_tools":
+                responseText = "🤖 AI-инструменты\n\nЗдесь будут подборки и инструкции по AI-инструментам. Раздел скоро заработает.";
+                break;
+            case "main_games":
+                responseText = "🎮 Игры\n\nЗдесь будут игровые механики и форматы. Раздел скоро заработает.";
+                break;
+            case "main_random":
+                responseText = "🎲 Случайное\n\nЗдесь будет случайный вдохновляющий или полезный контент. Раздел скоро заработает.";
+                break;
+            case "main_progress":
+                responseText = "📊 Мой прогресс\n\nЗдесь появится личный прогресс и статистика. Раздел скоро заработает.";
+                break;
+            default:
+                responseText = "Этот раздел пока в разработке.";
+        }
+        
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText(responseText);
+        
+        try {
+            execute(message);
+            sendCallbackAnswer(callbackQuery.getId(), "✅");
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при обработке главного меню", e);
         }
     }
     
