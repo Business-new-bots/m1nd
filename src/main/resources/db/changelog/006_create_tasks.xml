@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog 
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Создание таблицы заданий -->
+    <changeSet id="006_create_table_tasks" author="m1nd">
+        <preConditions onFail="CONTINUE">
+            <not>
+                <tableExists tableName="tasks"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="tasks" remarks="Задания дня и другие задания">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+
+            <!-- Текст задания -->
+            <column name="text" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Тип / категория задания (опционально) -->
+            <column name="type" type="VARCHAR(50)">
+                <constraints nullable="true"/>
+            </column>
+
+            <!-- ID администратора, создавшего задание (опционально) -->
+            <column name="created_by" type="BIGINT">
+                <constraints nullable="true"/>
+            </column>
+
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+                <defaultValueComputed>CURRENT_TIMESTAMP</defaultValueComputed>
+            </column>
+        </createTable>
+
+        <rollback>
+            <dropTable tableName="tasks"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
+

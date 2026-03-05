@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog 
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Создание таблицы тем фактов для главного меню -->
+    <changeSet id="005_create_table_fact_topics" author="m1nd">
+        <preConditions onFail="CONTINUE">
+            <not>
+                <tableExists tableName="fact_topics"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="fact_topics" remarks="Темы фактов для главного меню">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+
+            <!-- Короткий код для callbackData (brain, space, tech, ...) -->
+            <column name="code" type="VARCHAR(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+
+            <!-- Текст кнопки, отображаемый пользователю -->
+            <column name="title" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Промпт для LLM -->
+            <column name="prompt" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <!-- Инициализация базовых тем фактов -->
+        <insert tableName="fact_topics">
+            <column name="code" value="brain"/>
+            <column name="title" value="🧠 Факты о мозге"/>
+            <column name="prompt" value="Дай один интересный и научно обоснованный факт о мозге человека. Кратко: 1–3 предложения."/>
+        </insert>
+
+        <insert tableName="fact_topics">
+            <column name="code" value="space"/>
+            <column name="title" value="🌌 Факты о космосе"/>
+            <column name="prompt" value="Дай один впечатляющий и достоверный факт о космосе или Вселенной. Кратко: 1–3 предложения."/>
+        </insert>
+
+        <insert tableName="fact_topics">
+            <column name="code" value="tech"/>
+            <column name="title" value="💻 Факты о технологиях"/>
+            <column name="prompt" value="Дай один любопытный факт о современных технологиях или истории технологий. Кратко: 1–3 предложения."/>
+        </insert>
+
+        <insert tableName="fact_topics">
+            <column name="code" value="psychology"/>
+            <column name="title" value="🧩 Факты о психологии"/>
+            <column name="prompt" value="Дай один интересный факт из области психологии или поведения людей. Кратко: 1–3 предложения."/>
+        </insert>
+
+        <insert tableName="fact_topics">
+            <column name="code" value="money"/>
+            <column name="title" value="💰 Факты о деньгах"/>
+            <column name="prompt" value="Дай один факт о деньгах, финансах или экономике, который может быть полезен или неожиданен. Кратко: 1–3 предложения."/>
+        </insert>
+
+        <insert tableName="fact_topics">
+            <column name="code" value="history"/>
+            <column name="title" value="📜 Факты истории"/>
+            <column name="prompt" value="Дай один занимательный исторический факт. Кратко: 1–3 предложения."/>
+        </insert>
+
+        <rollback>
+            <dropTable tableName="fact_topics"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
+
