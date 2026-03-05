@@ -22,6 +22,38 @@ public class FactTopicService {
         return factTopicRepository.findByCode(code);
     }
 
-    // Методы для будущего редактора (добавление/удаление тем) можно будет добавить сюда позже
+    public FactTopic createFromTitle(String title, Long createdByUserId) {
+        String baseCode = title.toLowerCase()
+            .replace("факты", "")
+            .replace("о", "")
+            .replaceAll("[^a-zа-я0-9]+", "_")
+            .replaceAll("_+", "_")
+            .replaceAll("^_|_$", "");
+
+        if (baseCode.isBlank()) {
+            baseCode = "topic";
+        }
+
+        String code = baseCode;
+        int suffix = 1;
+        while (factTopicRepository.findByCode(code).isPresent()) {
+            code = baseCode + "_" + suffix;
+            suffix++;
+        }
+
+        String prompt = "Дай один интересный и достоверный факт на тему: «"
+            + title + "». Кратко: 1–3 предложения.";
+
+        FactTopic topic = new FactTopic();
+        topic.setCode(code);
+        topic.setTitle(title);
+        topic.setPrompt(prompt);
+
+        return factTopicRepository.save(topic);
+    }
+
+    public void deleteById(Long id) {
+        factTopicRepository.deleteById(id);
+    }
 }
 
