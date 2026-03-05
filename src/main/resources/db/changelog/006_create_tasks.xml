@@ -34,7 +34,6 @@
 
             <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
                 <constraints nullable="false"/>
-                <defaultValueComputed>CURRENT_TIMESTAMP</defaultValueComputed>
             </column>
         </createTable>
 
