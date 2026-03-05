@@ -8,5 +8,7 @@
     <include file="classpath:db/changelog/002_insert_initial_admin.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/003_add_last_reminder_sent_at.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/004_create_user_session_summaries.xml" relativeToChangelogFile="false"/>
+    <include file="classpath:db/changelog/005_create_fact_topics.xml" relativeToChangelogFile="false"/>
+    <include file="classpath:db/changelog/006_create_tasks.xml" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>
