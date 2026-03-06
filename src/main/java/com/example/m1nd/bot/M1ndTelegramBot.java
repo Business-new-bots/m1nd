@@ -173,13 +173,27 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                         logger.error("Ошибка при отправке сообщения администратора", e);
                     }
                 }
-            } else if (waitingForFeedback.getOrDefault(userId, "").equals("comment")) {
-                // Обрабатываем комментарий к опросу
-                handleFeedbackComment(update, messageText);
             } else {
-                // Обработка обычных сообщений (вопросов)
-                logger.info("Обработка вопроса: {}", messageText);
-                handleQuestion(update, messageText);
+                Long chatId = update.getMessage().getChatId();
+                MainMenuService.PuzzleAnswerResult puzzleResult =
+                    mainMenuService.handlePuzzleAnswer(chatId, userId, messageText);
+
+                if (puzzleResult.isHandled()) {
+                    for (SendMessage msg : puzzleResult.getMessages()) {
+                        try {
+                            execute(msg);
+                        } catch (TelegramApiException e) {
+                            logger.error("Ошибка при отправке ответа на загадку", e);
+                        }
+                    }
+                } else if (waitingForFeedback.getOrDefault(userId, "").equals("comment")) {
+                    // Обрабатываем комментарий к опросу
+                    handleFeedbackComment(update, messageText);
+                } else {
+                    // Обработка обычных сообщений (вопросов)
+                    logger.info("Обработка вопроса: {}", messageText);
+                    handleQuestion(update, messageText);
+                }
             }
         }
         } else {
