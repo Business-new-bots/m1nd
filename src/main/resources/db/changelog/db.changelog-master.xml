@@ -10,5 +10,9 @@
     <include file="classpath:db/changelog/004_create_user_session_summaries.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/005_create_fact_topics.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/006_create_tasks.xml" relativeToChangelogFile="false"/>
+    <include file="classpath:db/changelog/007_create_idea_topics.xml" relativeToChangelogFile="false"/>
+    <include file="classpath:db/changelog/008_create_motivation_topics.xml" relativeToChangelogFile="false"/>
+    <include file="classpath:db/changelog/009_create_games.xml" relativeToChangelogFile="false"/>
+    <include file="classpath:db/changelog/010_create_user_progress.xml" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

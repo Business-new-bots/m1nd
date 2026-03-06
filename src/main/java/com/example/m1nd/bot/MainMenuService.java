@@ -1,9 +1,16 @@
 package com.example.m1nd.bot;
 
 import com.example.m1nd.model.FactTopic;
+import com.example.m1nd.model.Game;
+import com.example.m1nd.model.IdeaTopic;
+import com.example.m1nd.model.MotivationTopic;
 import com.example.m1nd.service.FactTopicService;
+import com.example.m1nd.service.GameService;
+import com.example.m1nd.service.IdeaTopicService;
 import com.example.m1nd.service.LLMService;
+import com.example.m1nd.service.MotivationTopicService;
 import com.example.m1nd.service.TaskService;
+import com.example.m1nd.service.UserProgressService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +38,11 @@ public class MainMenuService {
 
     private final LLMService llmService;
     private final FactTopicService factTopicService;
+    private final IdeaTopicService ideaTopicService;
+    private final MotivationTopicService motivationTopicService;
+    private final GameService gameService;
     private final TaskService taskService;
+    private final UserProgressService userProgressService;
 
     private enum PuzzleCategory {
         RIDDLE,
@@ -50,6 +61,20 @@ public class MainMenuService {
     }
 
     private final Map<Long, PuzzleSession> puzzleSessions = new ConcurrentHashMap<>();
+
+    /** Сессия игры: угадай число или викторина */
+    private static class GameSession {
+        private String gameCode;
+        private Integer secretNumber;
+        private String messageToUser;
+        private int quizIndex;
+        private int quizTotal = 5;
+        private String question;
+        private String answer;
+        private String explanation;
+        private String options;
+    }
+    private final Map<Long, GameSession> gameSessions = new ConcurrentHashMap<>();
 
     public ReplyKeyboardMarkup createMainReplyKeyboard() {
         ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
@@ -85,9 +110,14 @@ public class MainMenuService {
         row3.add(button("🎮 Игры", "main_games"));
         row3.add(button("📊 Мой прогресс", "main_progress"));
 
+        // Задать вопрос боту
+        List<InlineKeyboardButton> row4 = new ArrayList<>();
+        row4.add(button("💬 Задать вопрос боту", "main_ask_question"));
+
         keyboard.add(row1);
         keyboard.add(row2);
         keyboard.add(row3);
+        keyboard.add(row4);
 
         markup.setKeyboard(keyboard);
         return markup;
@@ -114,6 +144,12 @@ public class MainMenuService {
             && (data.startsWith("main_")
                 || data.startsWith("facts_")
                 || data.startsWith("fact_")
+                || data.startsWith("ideas_")
+                || data.startsWith("idea_")
+                || data.startsWith("motiv_")
+                || data.startsWith("motivation_")
+                || data.startsWith("game_")
+                || data.startsWith("games_")
                 || data.startsWith("task_")
                 || data.startsWith("puzzle_"));
     }
@@ -142,6 +178,63 @@ public class MainMenuService {
         if ("main_menu_back".equals(data)) {
             SendMessage message = buildMainMenuMessage(chatId);
             return Mono.just(MainMenuResult.single(message, "✅"));
+        }
+
+        // Задать вопрос боту
+        if ("main_ask_question".equals(data)) {
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("Ожидаю вопрос");
+            message.setReplyMarkup(createMainMenuInlineKeyboard());
+            return Mono.just(MainMenuResult.single(message, "✅"));
+        }
+
+        // Идеи и инсайты — выбор темы
+        if ("main_ideas_insights".equals(data) || "idea_menu".equals(data)) {
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("💡 Идеи и инсайты\n\nВыбери тему:");
+            message.setReplyMarkup(createIdeasTopicsKeyboard());
+            return Mono.just(MainMenuResult.single(message, "✅"));
+        }
+
+        // Мотивация — выбор подпункта
+        if ("main_motivation".equals(data) || "motivation_menu".equals(data)) {
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("🚀 Мотивация\n\nВыбери раздел:");
+            message.setReplyMarkup(createMotivationTopicsKeyboard());
+            return Mono.just(MainMenuResult.single(message, "✅"));
+        }
+
+        // Игры — выбор игры
+        if ("main_games".equals(data) || "games_menu".equals(data)) {
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("🎮 Игры\n\nВыбери игру:");
+            message.setReplyMarkup(createGamesKeyboard());
+            return Mono.just(MainMenuResult.single(message, "✅"));
+        }
+
+        // Мой прогресс
+        if ("main_progress".equals(data)) {
+            int riddles = userProgressService.getRiddlesSolved(userId);
+            int tasks = userProgressService.getTasksCompleted(userId);
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("📊 Мой прогресс\n\nРешено загадок: " + riddles + "\nВыполнено заданий: " + tasks);
+            message.setReplyMarkup(createProgressBackKeyboard());
+            return Mono.just(MainMenuResult.single(message, "✅"));
+        }
+
+        // Задание отмечено выполненным
+        if ("task_done".equals(data)) {
+            userProgressService.incrementTasksCompleted(userId);
+            SendMessage confirm = new SendMessage();
+            confirm.setChatId(chatId.toString());
+            confirm.setText("✅ Задание отмечено выполненным!");
+            confirm.setReplyMarkup(createTaskActionsKeyboard());
+            return Mono.just(MainMenuResult.single(confirm, "✅"));
         }
 
         // Задания дня
@@ -234,18 +327,6 @@ public class MainMenuService {
                 case "main_puzzles_tests":
                     responseText = "🧩 Загадки и тесты\n\nВыбирай раздел:";
                     break;
-                case "main_ideas_insights":
-                    responseText = "💡 Идеи и инсайты\n\nЗдесь будут идеи для роста и инсайты. Раздел скоро заработает.";
-                    break;
-                case "main_motivation":
-                    responseText = "🚀 Мотивация\n\nЗдесь будет мотивационный контент. Раздел скоро заработает.";
-                    break;
-                case "main_games":
-                    responseText = "🎮 Игры\n\nЗдесь будут игровые механики и форматы. Раздел скоро заработает.";
-                    break;
-                case "main_progress":
-                    responseText = "📊 Мой прогресс\n\nЗдесь появится личный прогресс и статистика. Раздел скоро заработает.";
-                    break;
                 default:
                     responseText = "Этот раздел пока в разработке.";
             }
@@ -293,6 +374,152 @@ public class MainMenuService {
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
 
+        // Выбор темы идей — запрос одной идеи у LLM
+        if (data.startsWith("ideas_")) {
+            String category = data.substring("ideas_".length());
+            return buildIdeaMessage(chatId, userId, category)
+                .map(msg -> MainMenuResult.single(msg, "✅"))
+                .onErrorResume(error -> {
+                    log.error("Ошибка при запросе идеи у LLM", error);
+                    SendMessage errorMessage = new SendMessage();
+                    errorMessage.setChatId(chatId.toString());
+                    errorMessage.setText("Не удалось получить идею. Попробуйте ещё раз позже.");
+                    return Mono.just(MainMenuResult.single(errorMessage, "❌ Ошибка"));
+                });
+        }
+
+        // Следующая идея по той же теме
+        if (data.startsWith("idea_next:")) {
+            String category = data.substring("idea_next:".length());
+            return buildIdeaMessage(chatId, userId, category)
+                .map(msg -> MainMenuResult.single(msg, "✅"))
+                .onErrorResume(error -> {
+                    log.error("Ошибка при запросе следующей идеи у LLM", error);
+                    SendMessage errorMessage = new SendMessage();
+                    errorMessage.setChatId(chatId.toString());
+                    errorMessage.setText("Не удалось получить идею. Попробуйте ещё раз позже.");
+                    return Mono.just(MainMenuResult.single(errorMessage, "❌ Ошибка"));
+                });
+        }
+
+        // Выбор раздела мотивации — запрос у LLM
+        if (data.startsWith("motiv_")) {
+            String category = data.substring("motiv_".length());
+            return buildMotivationMessage(chatId, userId, category)
+                .map(msg -> MainMenuResult.single(msg, "✅"))
+                .onErrorResume(error -> {
+                    log.error("Ошибка при запросе мотивации у LLM", error);
+                    SendMessage errorMessage = new SendMessage();
+                    errorMessage.setChatId(chatId.toString());
+                    errorMessage.setText("Не удалось получить контент. Попробуйте ещё раз позже.");
+                    return Mono.just(MainMenuResult.single(errorMessage, "❌ Ошибка"));
+                });
+        }
+
+        // Следующая мотивация по той же теме
+        if (data.startsWith("motivation_next:")) {
+            String category = data.substring("motivation_next:".length());
+            return buildMotivationMessage(chatId, userId, category)
+                .map(msg -> MainMenuResult.single(msg, "✅"))
+                .onErrorResume(error -> {
+                    log.error("Ошибка при запросе следующей мотивации у LLM", error);
+                    SendMessage errorMessage = new SendMessage();
+                    errorMessage.setChatId(chatId.toString());
+                    errorMessage.setText("Не удалось получить контент. Попробуйте ещё раз позже.");
+                    return Mono.just(MainMenuResult.single(errorMessage, "❌ Ошибка"));
+                });
+        }
+
+        // Игры: выбор игры по коду
+        if (data.startsWith("games_")) {
+            String gameCode = data.substring("games_".length());
+            if ("guess_number".equals(gameCode)) {
+                return buildGuessNumberMessage(chatId, userId)
+                    .map(msg -> MainMenuResult.single(msg, "✅"))
+                    .onErrorResume(error -> {
+                        log.error("Ошибка при старте «Угадай число»", error);
+                        return Mono.just(MainMenuResult.single(errorMessage(chatId, "Не удалось начать игру."), "❌"));
+                    });
+            }
+            if ("quiz".equals(gameCode)) {
+                GameSession session = gameSessions.computeIfAbsent(userId, id -> new GameSession());
+                session.gameCode = "quiz";
+                session.quizIndex = 0;
+                session.quizTotal = 5;
+                return buildQuizQuestionMessage(chatId, userId, session)
+                    .map(msg -> MainMenuResult.single(msg, "✅"))
+                    .onErrorResume(error -> {
+                        log.error("Ошибка при старте викторины", error);
+                        return Mono.just(MainMenuResult.single(errorMessage(chatId, "Не удалось начать викторину."), "❌"));
+                    });
+            }
+            // Правда/ложь, челленджи — заглушка
+            Optional<Game> gameOpt = gameService.findByCode(gameCode);
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            if (gameOpt.isPresent()) {
+                msg.setText("🎮 " + gameOpt.get().getTitle() + "\n\nЭтот режим скоро появится.");
+            } else {
+                msg.setText("Игра не найдена.");
+            }
+            msg.setReplyMarkup(createGameBackKeyboard());
+            return Mono.just(MainMenuResult.single(msg, "✅"));
+        }
+
+        // Угадай число — попробовать ещё раз (новый запрос к агенту)
+        if ("game_guess_again".equals(data)) {
+            return buildGuessNumberMessage(chatId, userId)
+                .map(msg -> MainMenuResult.single(msg, "✅"))
+                .onErrorResume(error -> Mono.just(MainMenuResult.single(errorMessage(chatId, "Не удалось начать игру."), "❌")));
+        }
+
+        // Викторина — следующий вопрос
+        if ("game_quiz_next".equals(data)) {
+            GameSession session = gameSessions.get(userId);
+            if (session == null || !"quiz".equals(session.gameCode)) {
+                SendMessage msg = new SendMessage();
+                msg.setChatId(chatId.toString());
+                msg.setText("Выбери игру:");
+                msg.setReplyMarkup(createGamesKeyboard());
+                return Mono.just(MainMenuResult.single(msg, "✅"));
+            }
+            session.quizIndex++;
+            if (session.quizIndex >= session.quizTotal) {
+                gameSessions.remove(userId);
+                SendMessage finished = new SendMessage();
+                finished.setChatId(chatId.toString());
+                finished.setText("❓ Викторина завершена! Спасибо, что прошли тест.");
+                finished.setReplyMarkup(createGamesMenuKeyboard());
+                return Mono.just(MainMenuResult.single(finished, "✅"));
+            }
+            return buildQuizQuestionMessage(chatId, userId, session)
+                .map(msg -> MainMenuResult.single(msg, "✅"))
+                .onErrorResume(error -> Mono.just(MainMenuResult.single(errorMessage(chatId, "Ошибка загрузки вопроса."), "❌")));
+        }
+
+        // Викторина — показать ответ
+        if ("game_quiz_show_answer".equals(data)) {
+            GameSession session = gameSessions.get(userId);
+            if (session == null || session.question == null || session.answer == null) {
+                SendMessage msg = new SendMessage();
+                msg.setChatId(chatId.toString());
+                msg.setText("Выбери игру:");
+                msg.setReplyMarkup(createGamesKeyboard());
+                return Mono.just(MainMenuResult.single(msg, "✅"));
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("❓ Вопрос:\n").append(session.question).append("\n\n");
+            sb.append("✅ Правильный ответ: ").append(session.answer).append("\n");
+            if (session.explanation != null && !session.explanation.isBlank()) {
+                sb.append("\n💡 ").append(session.explanation);
+            }
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText(sb.toString());
+            msg.setReplyMarkup(createQuizAfterAnswerKeyboard(session));
+            return Mono.just(MainMenuResult.single(msg, "✅"));
+        }
+
         // Если что-то не распознали
         SendMessage unknown = new SendMessage();
         unknown.setChatId(chatId.toString());
@@ -322,6 +549,10 @@ public class MainMenuService {
         if (!currentRow.isEmpty()) {
             keyboard.add(currentRow);
         }
+
+        List<InlineKeyboardButton> rowBack = new ArrayList<>();
+        rowBack.add(button("◀️ Возврат в главное меню", "main_menu_back"));
+        keyboard.add(rowBack);
 
         markup.setKeyboard(keyboard);
         return markup;
@@ -354,21 +585,331 @@ public class MainMenuService {
                 List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
                 List<InlineKeyboardButton> row1 = new ArrayList<>();
-                InlineKeyboardButton nextButton = new InlineKeyboardButton();
-                nextButton.setText("➡️ Следующий факт");
-                nextButton.setCallbackData("fact_next:" + nextCategory);
-                row1.add(nextButton);
-
-                InlineKeyboardButton menuButton = new InlineKeyboardButton();
-                menuButton.setText("📋 Случайный факт по теме");
-                menuButton.setCallbackData("fact_menu");
-                row1.add(menuButton);
-
+                row1.add(button("➡️ Следующий факт", "fact_next:" + nextCategory));
+                row1.add(button("📋 Главное меню", "main_menu_back"));
                 keyboard.add(row1);
+
+                List<InlineKeyboardButton> row2 = new ArrayList<>();
+                row2.add(button("📋 Случайный факт по теме", "fact_menu"));
+                keyboard.add(row2);
+
                 markup.setKeyboard(keyboard);
                 factMessage.setReplyMarkup(markup);
 
                 return factMessage;
+            });
+    }
+
+    private InlineKeyboardMarkup createIdeasTopicsKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+        List<IdeaTopic> topics = ideaTopicService.findAll();
+        List<InlineKeyboardButton> currentRow = new ArrayList<>();
+
+        for (IdeaTopic topic : topics) {
+            currentRow.add(button(topic.getTitle(), "ideas_" + topic.getCode()));
+            if (currentRow.size() == 2) {
+                keyboard.add(currentRow);
+                currentRow = new ArrayList<>();
+            }
+        }
+        if (!currentRow.isEmpty()) {
+            keyboard.add(currentRow);
+        }
+
+        List<InlineKeyboardButton> rowBack = new ArrayList<>();
+        rowBack.add(button("◀️ Возврат в главное меню", "main_menu_back"));
+        keyboard.add(rowBack);
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+
+    private Mono<SendMessage> buildIdeaMessage(Long chatId, Long userId, String category) {
+        Optional<IdeaTopic> topicOpt = ideaTopicService.findByCode(category);
+        String prompt;
+        String nextCategory;
+
+        if (topicOpt.isPresent()) {
+            IdeaTopic topic = topicOpt.get();
+            prompt = topic.getPrompt();
+            nextCategory = topic.getCode();
+        } else {
+            log.warn("Не найдена тема идей с кодом {}, используем дефолтный промпт", category);
+            prompt = "Дай одну идею или инсайт. Кратко: 1–3 предложения.";
+            nextCategory = category != null ? category : "default";
+        }
+
+        return llmService.getAnswer(prompt, userId)
+            .map(answer -> {
+                SendMessage ideaMessage = new SendMessage();
+                ideaMessage.setChatId(chatId.toString());
+                ideaMessage.setText(answer);
+
+                InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+                List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+                List<InlineKeyboardButton> row1 = new ArrayList<>();
+                row1.add(button("➡️ Следующая идея", "idea_next:" + nextCategory));
+                row1.add(button("📋 Главное меню", "main_menu_back"));
+                keyboard.add(row1);
+
+                List<InlineKeyboardButton> row2 = new ArrayList<>();
+                row2.add(button("📋 К выбору тем", "idea_menu"));
+                keyboard.add(row2);
+
+                markup.setKeyboard(keyboard);
+                ideaMessage.setReplyMarkup(markup);
+                return ideaMessage;
+            });
+    }
+
+    private InlineKeyboardMarkup createMotivationTopicsKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+        List<MotivationTopic> topics = motivationTopicService.findAll();
+        List<InlineKeyboardButton> currentRow = new ArrayList<>();
+
+        for (MotivationTopic topic : topics) {
+            currentRow.add(button(topic.getTitle(), "motiv_" + topic.getCode()));
+            if (currentRow.size() == 2) {
+                keyboard.add(currentRow);
+                currentRow = new ArrayList<>();
+            }
+        }
+        if (!currentRow.isEmpty()) {
+            keyboard.add(currentRow);
+        }
+
+        List<InlineKeyboardButton> rowBack = new ArrayList<>();
+        rowBack.add(button("◀️ Возврат в главное меню", "main_menu_back"));
+        keyboard.add(rowBack);
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+
+    private Mono<SendMessage> buildMotivationMessage(Long chatId, Long userId, String category) {
+        Optional<MotivationTopic> topicOpt = motivationTopicService.findByCode(category);
+        String prompt;
+        String nextCategory;
+
+        if (topicOpt.isPresent()) {
+            MotivationTopic topic = topicOpt.get();
+            prompt = topic.getPrompt();
+            nextCategory = topic.getCode();
+        } else {
+            log.warn("Не найдена тема мотивации с кодом {}, используем дефолтный промпт", category);
+            prompt = "Дай одну короткую мотивирующую мысль. Кратко: 1–2 предложения.";
+            nextCategory = category != null ? category : "default";
+        }
+
+        return llmService.getAnswer(prompt, userId)
+            .map(answer -> {
+                SendMessage msg = new SendMessage();
+                msg.setChatId(chatId.toString());
+                msg.setText(answer);
+
+                InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+                List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+                List<InlineKeyboardButton> row1 = new ArrayList<>();
+                row1.add(button("➡️ Следующее", "motivation_next:" + nextCategory));
+                row1.add(button("📋 Главное меню", "main_menu_back"));
+                keyboard.add(row1);
+
+                List<InlineKeyboardButton> row2 = new ArrayList<>();
+                row2.add(button("📋 К выбору разделов", "motivation_menu"));
+                keyboard.add(row2);
+
+                markup.setKeyboard(keyboard);
+                msg.setReplyMarkup(markup);
+                return msg;
+            });
+    }
+
+    private InlineKeyboardMarkup createGamesKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        List<Game> games = gameService.findAll();
+        List<InlineKeyboardButton> currentRow = new ArrayList<>();
+        for (Game game : games) {
+            currentRow.add(button(game.getTitle(), "games_" + game.getCode()));
+            if (currentRow.size() == 2) {
+                keyboard.add(currentRow);
+                currentRow = new ArrayList<>();
+            }
+        }
+        if (!currentRow.isEmpty()) {
+            keyboard.add(currentRow);
+        }
+        List<InlineKeyboardButton> rowBack = new ArrayList<>();
+        rowBack.add(button("◀️ Возврат в главное меню", "main_menu_back"));
+        keyboard.add(rowBack);
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+
+    private InlineKeyboardMarkup createGameBackKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        List<InlineKeyboardButton> row = new ArrayList<>();
+        row.add(button("📋 Главное меню", "main_menu_back"));
+        keyboard.add(row);
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+
+    private InlineKeyboardMarkup createProgressBackKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        keyboard.add(List.of(button("📋 Главное меню", "main_menu_back")));
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+
+    private InlineKeyboardMarkup createTaskActionsKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        List<InlineKeyboardButton> row1 = new ArrayList<>();
+        row1.add(button("✅ Выполнил", "task_done"));
+        row1.add(button("➡️ Следующее задание", "task_next"));
+        keyboard.add(row1);
+        keyboard.add(List.of(button("📋 Главное меню", "main_menu_back")));
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+
+    private InlineKeyboardMarkup createGamesMenuKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        List<InlineKeyboardButton> row1 = new ArrayList<>();
+        row1.add(button("📋 К выбору игр", "games_menu"));
+        row1.add(button("📋 Главное меню", "main_menu_back"));
+        keyboard.add(row1);
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+
+    private InlineKeyboardMarkup createGuessNumberKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        List<InlineKeyboardButton> row = new ArrayList<>();
+        row.add(button("🔄 Попробовать еще раз", "game_guess_again"));
+        row.add(button("📋 Главное меню", "main_menu_back"));
+        keyboard.add(row);
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+
+    private InlineKeyboardMarkup createQuizAfterAnswerKeyboard(GameSession session) {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        List<InlineKeyboardButton> row1 = new ArrayList<>();
+        if (session.quizIndex + 1 < session.quizTotal) {
+            row1.add(button("➡️ Следующий вопрос", "game_quiz_next"));
+        }
+        row1.add(button("📋 Главное меню", "main_menu_back"));
+        keyboard.add(row1);
+        List<InlineKeyboardButton> row2 = new ArrayList<>();
+        row2.add(button("📋 К выбору игр", "games_menu"));
+        keyboard.add(row2);
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+
+    private SendMessage errorMessage(Long chatId, String text) {
+        SendMessage msg = new SendMessage();
+        msg.setChatId(chatId.toString());
+        msg.setText(text);
+        return msg;
+    }
+
+    private Mono<SendMessage> buildGuessNumberMessage(Long chatId, Long userId) {
+        String prompt = gameService.findByCode("guess_number")
+            .map(Game::getPrompt)
+            .orElse("Загадай число от 1 до 10. Ответь в формате: первая строка NUMBER: цифра. Вторая строка MESSAGE: приветственное сообщение пользователю.");
+        return llmService.getAnswer(prompt, userId)
+            .map(raw -> {
+                int secret = 5;
+                String messageToUser = "Я загадал число от 1 до 10. Попробуй угадать.";
+                if (raw != null && !raw.isBlank()) {
+                    String[] lines = raw.split("\\r?\\n");
+                    for (String line : lines) {
+                        String t = line.trim();
+                        if (t.toUpperCase().startsWith("NUMBER:")) {
+                            String numStr = t.substring(7).trim().replaceAll("[^0-9]", "");
+                            if (!numStr.isEmpty()) {
+                                try {
+                                    int n = Integer.parseInt(numStr);
+                                    if (n >= 1 && n <= 10) {
+                                        secret = n;
+                                    }
+                                } catch (NumberFormatException ignored) {
+                                }
+                            }
+                        } else if (t.toUpperCase().startsWith("MESSAGE:")) {
+                            messageToUser = t.substring(8).trim();
+                            if (messageToUser.isEmpty()) {
+                                messageToUser = "Я загадал число от 1 до 10. Попробуй угадать.";
+                            }
+                        }
+                    }
+                }
+                GameSession session = gameSessions.computeIfAbsent(userId, id -> new GameSession());
+                session.gameCode = "guess_number";
+                session.secretNumber = secret;
+                session.messageToUser = messageToUser;
+
+                SendMessage msg = new SendMessage();
+                msg.setChatId(chatId.toString());
+                msg.setText("🎮 Игра\n\n" + messageToUser);
+                msg.setReplyMarkup(createGuessNumberKeyboard());
+                return msg;
+            });
+    }
+
+    private Mono<SendMessage> buildQuizQuestionMessage(Long chatId, Long userId, GameSession session) {
+        int current = session.quizIndex + 1;
+        int total = session.quizTotal;
+        String prompt = gameService.findByCode("quiz")
+            .map(Game::getPrompt)
+            .orElse("Сгенерируй один вопрос викторины. Формат: QUESTION: ... OPTIONS: a) ... b) ... c) ... d) ... ANSWER: a|b|c|d EXPLANATION: ...");
+        String promptWithNum = "Вопрос " + current + " из " + total + ".\n" + prompt;
+
+        return llmService.getAnswer(promptWithNum, userId)
+            .map(raw -> {
+                ParsedPuzzle parsed = parsePuzzle(raw);
+                session.question = parsed.question;
+                session.answer = parsed.answer;
+                session.explanation = parsed.explanation;
+                session.options = parsed.options;
+
+                StringBuilder text = new StringBuilder();
+                text.append("❓ Викторина. Вопрос ").append(current).append(" из ").append(total).append(":\n\n");
+                text.append(parsed.question).append("\n\n");
+                if (parsed.options != null && !parsed.options.isBlank()) {
+                    text.append(parsed.options).append("\n\n");
+                } else {
+                    text.append("Ответь буквой a, b, c или d.\n\n");
+                }
+                text.append("Ответь буквой (a, b, c или d) или нажми «Показать ответ».");
+
+                SendMessage msg = new SendMessage();
+                msg.setChatId(chatId.toString());
+                msg.setText(text.toString());
+
+                InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+                List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+                List<InlineKeyboardButton> row1 = new ArrayList<>();
+                row1.add(button("✅ Показать ответ", "game_quiz_show_answer"));
+                keyboard.add(row1);
+                List<InlineKeyboardButton> row2 = new ArrayList<>();
+                row2.add(button("📋 К выбору игр", "games_menu"));
+                keyboard.add(row2);
+                markup.setKeyboard(keyboard);
+                msg.setReplyMarkup(markup);
+                return msg;
             });
     }
 
@@ -385,27 +926,67 @@ public class MainMenuService {
 
                 String text = opt.get().getText();
                 msg.setText("🎯 Задание дня:\n\n" + text);
-
-                InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-                List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
-                List<InlineKeyboardButton> row1 = new ArrayList<>();
-                InlineKeyboardButton nextButton = new InlineKeyboardButton();
-                nextButton.setText("➡️ Следующее задание");
-                nextButton.setCallbackData("task_next");
-                row1.add(nextButton);
-
-                InlineKeyboardButton menuButton = new InlineKeyboardButton();
-                menuButton.setText("📋 Главное меню");
-                menuButton.setCallbackData("main_menu_back");
-                row1.add(menuButton);
-
-                keyboard.add(row1);
-                markup.setKeyboard(keyboard);
-                msg.setReplyMarkup(markup);
+                msg.setReplyMarkup(createTaskActionsKeyboard());
 
                 return msg;
             });
+    }
+
+    public GameAnswerResult handleGameAnswer(Long chatId, Long userId, String messageText) {
+        GameSession gameSession = gameSessions.get(userId);
+        if (gameSession == null) {
+            return GameAnswerResult.notHandled();
+        }
+        if ("guess_number".equals(gameSession.gameCode)) {
+            int guessed;
+            try {
+                String trimmed = messageText != null ? messageText.trim().replaceAll("[^0-9]", "") : "";
+                if (trimmed.isEmpty()) {
+                    return GameAnswerResult.notHandled();
+                }
+                guessed = Integer.parseInt(trimmed);
+            } catch (NumberFormatException e) {
+                return GameAnswerResult.notHandled();
+            }
+            int secret = gameSession.secretNumber != null ? gameSession.secretNumber : 5;
+            gameSessions.remove(userId);
+
+            String reply;
+            if (guessed == secret) {
+                reply = "✅ Вы угадали! Загаданное число было " + secret + ".";
+            } else {
+                reply = "❌ Не угадали. Загаданное число было " + secret + ".";
+            }
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText(reply);
+            msg.setReplyMarkup(createGuessNumberKeyboard());
+            return GameAnswerResult.handled(List.of(msg));
+        }
+        if ("quiz".equals(gameSession.gameCode) && gameSession.question != null && gameSession.answer != null) {
+            String userNormalized = extractFirstLetter(normalizeAnswer(messageText));
+            String correctNormalized = extractFirstLetter(normalizeAnswer(gameSession.answer));
+            boolean correct = !userNormalized.isEmpty() && !correctNormalized.isEmpty()
+                && userNormalized.charAt(0) == correctNormalized.charAt(0);
+
+            StringBuilder sb = new StringBuilder();
+            if (correct) {
+                sb.append("✅ Верно!\n\n");
+            } else {
+                sb.append("❌ Неверно.\n\n");
+            }
+            sb.append("❓ Вопрос:\n").append(gameSession.question).append("\n\n");
+            sb.append("✅ Правильный ответ: ").append(gameSession.answer).append("\n");
+            if (gameSession.explanation != null && !gameSession.explanation.isBlank()) {
+                sb.append("\n💡 ").append(gameSession.explanation);
+            }
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText(sb.toString());
+            msg.setReplyMarkup(createQuizAfterAnswerKeyboard(gameSession));
+            return GameAnswerResult.handled(List.of(msg));
+        }
+        return GameAnswerResult.notHandled();
     }
 
     public PuzzleAnswerResult handlePuzzleAnswer(Long chatId, Long userId, String messageText) {
@@ -430,6 +1011,10 @@ public class MainMenuService {
                 && userNormalized.equals(correctNormalized);
         }
 
+        if (correct) {
+            userProgressService.incrementRiddlesSolved(userId);
+        }
+
         StringBuilder sb = new StringBuilder();
         if (correct) {
             sb.append("✅ Вы абсолютно правы!\n\n");
@@ -446,8 +1031,6 @@ public class MainMenuService {
         msg.setChatId(chatId.toString());
         msg.setText(sb.toString());
         msg.setReplyMarkup(createAfterAnswerKeyboard(session.category, session));
-
-        // Для IQ по завершении теста очистим сессию в callback puzzle_iq_next
 
         List<SendMessage> messages = new ArrayList<>();
         messages.add(msg);
@@ -759,6 +1342,32 @@ public class MainMenuService {
         b.setText(text);
         b.setCallbackData(data);
         return b;
+    }
+
+    public static class GameAnswerResult {
+        private final boolean handled;
+        private final List<SendMessage> messages;
+
+        private GameAnswerResult(boolean handled, List<SendMessage> messages) {
+            this.handled = handled;
+            this.messages = messages;
+        }
+
+        public static GameAnswerResult handled(List<SendMessage> messages) {
+            return new GameAnswerResult(true, messages);
+        }
+
+        public static GameAnswerResult notHandled() {
+            return new GameAnswerResult(false, List.of());
+        }
+
+        public boolean isHandled() {
+            return handled;
+        }
+
+        public List<SendMessage> getMessages() {
+            return messages;
+        }
     }
 
     public static class PuzzleAnswerResult {

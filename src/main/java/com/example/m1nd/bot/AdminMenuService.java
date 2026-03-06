@@ -1,6 +1,9 @@
 package com.example.m1nd.bot;
 
 import com.example.m1nd.model.FactTopic;
+import com.example.m1nd.model.Game;
+import com.example.m1nd.model.IdeaTopic;
+import com.example.m1nd.model.MotivationTopic;
 import com.example.m1nd.model.Task;
 import com.example.m1nd.service.AdminService;
 import com.example.m1nd.service.FeedbackService;
@@ -9,6 +12,9 @@ import com.example.m1nd.service.SummaryService;
 import com.example.m1nd.service.TaskService;
 import com.example.m1nd.service.UserService;
 import com.example.m1nd.service.FactTopicService;
+import com.example.m1nd.service.IdeaTopicService;
+import com.example.m1nd.service.GameService;
+import com.example.m1nd.service.MotivationTopicService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +42,9 @@ public class AdminMenuService {
     private final StatisticsService statisticsService;
     private final SummaryService summaryService;
     private final FactTopicService factTopicService;
+    private final IdeaTopicService ideaTopicService;
+    private final MotivationTopicService motivationTopicService;
+    private final GameService gameService;
     private final TaskService taskService;
 
     private final Map<Long, Boolean> waitingForAdminUsername = new ConcurrentHashMap<>();
@@ -43,6 +52,9 @@ public class AdminMenuService {
 
     private enum AdminEditorState {
         ADD_FACT_TOPIC,
+        ADD_IDEA_TOPIC,
+        ADD_MOTIVATION_TOPIC,
+        ADD_GAME,
         ADD_TASK
     }
 
@@ -151,25 +163,61 @@ public class AdminMenuService {
         row1.add(deleteFactTopic);
 
         List<InlineKeyboardButton> row2 = new ArrayList<>();
+        InlineKeyboardButton addIdeaTopic = new InlineKeyboardButton();
+        addIdeaTopic.setText("➕ Добавить тему для идеи");
+        addIdeaTopic.setCallbackData("menu_add_idea_topic");
+        row2.add(addIdeaTopic);
+
+        InlineKeyboardButton deleteIdeaTopic = new InlineKeyboardButton();
+        deleteIdeaTopic.setText("➖ Удалить тему идеи");
+        deleteIdeaTopic.setCallbackData("menu_delete_idea_topic");
+        row2.add(deleteIdeaTopic);
+
+        List<InlineKeyboardButton> row3 = new ArrayList<>();
+        InlineKeyboardButton addMotivationTopic = new InlineKeyboardButton();
+        addMotivationTopic.setText("➕ Добавить тему мотивации");
+        addMotivationTopic.setCallbackData("menu_add_motivation_topic");
+        row3.add(addMotivationTopic);
+
+        InlineKeyboardButton deleteMotivationTopic = new InlineKeyboardButton();
+        deleteMotivationTopic.setText("➖ Удалить тему мотивации");
+        deleteMotivationTopic.setCallbackData("menu_delete_motivation_topic");
+        row3.add(deleteMotivationTopic);
+
+        List<InlineKeyboardButton> row4 = new ArrayList<>();
+        InlineKeyboardButton addGame = new InlineKeyboardButton();
+        addGame.setText("➕ Добавить игру");
+        addGame.setCallbackData("menu_add_game");
+        row4.add(addGame);
+
+        InlineKeyboardButton deleteGame = new InlineKeyboardButton();
+        deleteGame.setText("➖ Удалить игру");
+        deleteGame.setCallbackData("menu_delete_game");
+        row4.add(deleteGame);
+
+        List<InlineKeyboardButton> row5 = new ArrayList<>();
         InlineKeyboardButton addTask = new InlineKeyboardButton();
         addTask.setText("➕ Добавить задание");
         addTask.setCallbackData("menu_add_task");
-        row2.add(addTask);
+        row5.add(addTask);
 
         InlineKeyboardButton deleteTask = new InlineKeyboardButton();
         deleteTask.setText("➖ Удалить задание");
         deleteTask.setCallbackData("menu_delete_task");
-        row2.add(deleteTask);
+        row5.add(deleteTask);
 
-        List<InlineKeyboardButton> row3 = new ArrayList<>();
+        List<InlineKeyboardButton> row6 = new ArrayList<>();
         InlineKeyboardButton backButton = new InlineKeyboardButton();
         backButton.setText("◀️ Назад");
         backButton.setCallbackData("admin_menu");
-        row3.add(backButton);
+        row6.add(backButton);
 
         keyboard.add(row1);
         keyboard.add(row2);
         keyboard.add(row3);
+        keyboard.add(row4);
+        keyboard.add(row5);
+        keyboard.add(row6);
         markup.setKeyboard(keyboard);
 
         return markup;
@@ -190,9 +238,18 @@ public class AdminMenuService {
                 || data.startsWith("add_admin:")
                 || "admin_menu_editor".equals(data)
                 || "menu_add_fact_topic".equals(data)
+                || "menu_add_idea_topic".equals(data)
                 || "menu_add_task".equals(data)
                 || "menu_delete_fact_topic".equals(data)
                 || data.startsWith("menu_delete_fact_topic_confirm:")
+                || "menu_delete_idea_topic".equals(data)
+                || data.startsWith("menu_delete_idea_topic_confirm:")
+                || "menu_add_motivation_topic".equals(data)
+                || "menu_delete_motivation_topic".equals(data)
+                || data.startsWith("menu_delete_motivation_topic_confirm:")
+                || "menu_add_game".equals(data)
+                || "menu_delete_game".equals(data)
+                || data.startsWith("menu_delete_game_confirm:")
                 || "menu_delete_task".equals(data)
                 || data.startsWith("menu_delete_task_confirm:")
         );
@@ -293,6 +350,33 @@ public class AdminMenuService {
             msg.setReplyMarkup(createMenuEditorKeyboard());
             messages.add(msg);
             callbackAnswer = "✅ Введите название темы";
+        } else if ("menu_add_idea_topic".equals(data)) {
+            adminEditorState.put(userId, AdminEditorState.ADD_IDEA_TOPIC);
+
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("💡 Введите название новой темы для идей.\n\nНапример: «Идеи бизнеса».");
+            msg.setReplyMarkup(createMenuEditorKeyboard());
+            messages.add(msg);
+            callbackAnswer = "✅ Введите название темы";
+        } else if ("menu_add_motivation_topic".equals(data)) {
+            adminEditorState.put(userId, AdminEditorState.ADD_MOTIVATION_TOPIC);
+
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("🚀 Введите название новой темы мотивации.\n\nНапример: «Короткие мысли», «Цитаты», «Микро-советы».");
+            msg.setReplyMarkup(createMenuEditorKeyboard());
+            messages.add(msg);
+            callbackAnswer = "✅ Введите название темы";
+        } else if ("menu_add_game".equals(data)) {
+            adminEditorState.put(userId, AdminEditorState.ADD_GAME);
+
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("🎮 Введите название новой игры.\n\nНапример: Угадай число, Викторина.");
+            msg.setReplyMarkup(createMenuEditorKeyboard());
+            messages.add(msg);
+            callbackAnswer = "✅ Введите название игры";
         } else if ("menu_add_task".equals(data)) {
             adminEditorState.put(userId, AdminEditorState.ADD_TASK);
 
@@ -312,6 +396,45 @@ public class AdminMenuService {
             SendMessage msg = new SendMessage();
             msg.setChatId(chatId.toString());
             msg.setText("✅ Тема фактов удалена.");
+            msg.setReplyMarkup(createMenuEditorKeyboard());
+            messages.add(msg);
+            callbackAnswer = "✅ Удалено";
+        } else if ("menu_delete_idea_topic".equals(data)) {
+            messages.add(buildDeleteIdeaTopicsMessage(chatId));
+            callbackAnswer = "✅";
+        } else if (data != null && data.startsWith("menu_delete_idea_topic_confirm:")) {
+            Long topicId = Long.parseLong(data.substring("menu_delete_idea_topic_confirm:".length()));
+            ideaTopicService.deleteById(topicId);
+
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("✅ Тема идей удалена.");
+            msg.setReplyMarkup(createMenuEditorKeyboard());
+            messages.add(msg);
+            callbackAnswer = "✅ Удалено";
+        } else if ("menu_delete_motivation_topic".equals(data)) {
+            messages.add(buildDeleteMotivationTopicsMessage(chatId));
+            callbackAnswer = "✅";
+        } else if (data != null && data.startsWith("menu_delete_motivation_topic_confirm:")) {
+            Long topicId = Long.parseLong(data.substring("menu_delete_motivation_topic_confirm:".length()));
+            motivationTopicService.deleteById(topicId);
+
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("✅ Тема мотивации удалена.");
+            msg.setReplyMarkup(createMenuEditorKeyboard());
+            messages.add(msg);
+            callbackAnswer = "✅ Удалено";
+        } else if ("menu_delete_game".equals(data)) {
+            messages.add(buildDeleteGamesMessage(chatId));
+            callbackAnswer = "✅";
+        } else if (data != null && data.startsWith("menu_delete_game_confirm:")) {
+            Long gameId = Long.parseLong(data.substring("menu_delete_game_confirm:".length()));
+            gameService.deleteById(gameId);
+
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("✅ Игра удалена.");
             msg.setReplyMarkup(createMenuEditorKeyboard());
             messages.add(msg);
             callbackAnswer = "✅ Удалено";
@@ -372,6 +495,36 @@ public class AdminMenuService {
                     SendMessage msg = new SendMessage();
                     msg.setChatId(chatId.toString());
                     msg.setText("✅ Тема фактов добавлена: " + messageText.trim());
+                    msg.setReplyMarkup(createAdminMenuKeyboard());
+                    messages.add(msg);
+                }
+                case ADD_IDEA_TOPIC -> {
+                    ideaTopicService.createFromTitle(messageText.trim(), userId);
+                    adminEditorState.remove(userId);
+
+                    SendMessage msg = new SendMessage();
+                    msg.setChatId(chatId.toString());
+                    msg.setText("✅ Тема для идей добавлена: " + messageText.trim());
+                    msg.setReplyMarkup(createAdminMenuKeyboard());
+                    messages.add(msg);
+                }
+                case ADD_MOTIVATION_TOPIC -> {
+                    motivationTopicService.createFromTitle(messageText.trim(), userId);
+                    adminEditorState.remove(userId);
+
+                    SendMessage msg = new SendMessage();
+                    msg.setChatId(chatId.toString());
+                    msg.setText("✅ Тема мотивации добавлена: " + messageText.trim());
+                    msg.setReplyMarkup(createAdminMenuKeyboard());
+                    messages.add(msg);
+                }
+                case ADD_GAME -> {
+                    gameService.createFromTitle(messageText.trim(), userId);
+                    adminEditorState.remove(userId);
+
+                    SendMessage msg = new SendMessage();
+                    msg.setChatId(chatId.toString());
+                    msg.setText("✅ Игра добавлена: " + messageText.trim());
                     msg.setReplyMarkup(createAdminMenuKeyboard());
                     messages.add(msg);
                 }
@@ -734,6 +887,99 @@ public class AdminMenuService {
                 InlineKeyboardButton b = new InlineKeyboardButton();
                 b.setText(topic.getTitle());
                 b.setCallbackData("menu_delete_fact_topic_confirm:" + topic.getId());
+
+                List<InlineKeyboardButton> row = new ArrayList<>();
+                row.add(b);
+                keyboard.add(row);
+            }
+
+            markup.setKeyboard(keyboard);
+            msg.setReplyMarkup(markup);
+        }
+
+        return msg;
+    }
+
+    private SendMessage buildDeleteIdeaTopicsMessage(Long chatId) {
+        List<IdeaTopic> topics = ideaTopicService.findAll();
+
+        SendMessage msg = new SendMessage();
+        msg.setChatId(chatId.toString());
+
+        if (topics.isEmpty()) {
+            msg.setText("Тем для идей пока нет.");
+            msg.setReplyMarkup(createMenuEditorKeyboard());
+        } else {
+            msg.setText("Выберите тему идей для удаления:");
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+            for (IdeaTopic topic : topics) {
+                InlineKeyboardButton b = new InlineKeyboardButton();
+                b.setText(topic.getTitle());
+                b.setCallbackData("menu_delete_idea_topic_confirm:" + topic.getId());
+
+                List<InlineKeyboardButton> row = new ArrayList<>();
+                row.add(b);
+                keyboard.add(row);
+            }
+
+            markup.setKeyboard(keyboard);
+            msg.setReplyMarkup(markup);
+        }
+
+        return msg;
+    }
+
+    private SendMessage buildDeleteMotivationTopicsMessage(Long chatId) {
+        List<MotivationTopic> topics = motivationTopicService.findAll();
+
+        SendMessage msg = new SendMessage();
+        msg.setChatId(chatId.toString());
+
+        if (topics.isEmpty()) {
+            msg.setText("Тем мотивации пока нет.");
+            msg.setReplyMarkup(createMenuEditorKeyboard());
+        } else {
+            msg.setText("Выберите тему мотивации для удаления:");
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+            for (MotivationTopic topic : topics) {
+                InlineKeyboardButton b = new InlineKeyboardButton();
+                b.setText(topic.getTitle());
+                b.setCallbackData("menu_delete_motivation_topic_confirm:" + topic.getId());
+
+                List<InlineKeyboardButton> row = new ArrayList<>();
+                row.add(b);
+                keyboard.add(row);
+            }
+
+            markup.setKeyboard(keyboard);
+            msg.setReplyMarkup(markup);
+        }
+
+        return msg;
+    }
+
+    private SendMessage buildDeleteGamesMessage(Long chatId) {
+        List<Game> games = gameService.findAll();
+
+        SendMessage msg = new SendMessage();
+        msg.setChatId(chatId.toString());
+
+        if (games.isEmpty()) {
+            msg.setText("Игр пока нет.");
+            msg.setReplyMarkup(createMenuEditorKeyboard());
+        } else {
+            msg.setText("Выберите игру для удаления:");
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+            for (Game game : games) {
+                InlineKeyboardButton b = new InlineKeyboardButton();
+                b.setText(game.getTitle());
+                b.setCallbackData("menu_delete_game_confirm:" + game.getId());
 
                 List<InlineKeyboardButton> row = new ArrayList<>();
                 row.add(b);

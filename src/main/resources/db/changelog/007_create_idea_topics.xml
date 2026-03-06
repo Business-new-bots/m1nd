@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog 
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="007_create_table_idea_topics" author="m1nd">
+        <preConditions onFail="CONTINUE">
+            <not>
+                <tableExists tableName="idea_topics"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="idea_topics" remarks="Темы идей для раздела Идеи и инсайты">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="code" type="VARCHAR(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="title" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="prompt" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <insert tableName="idea_topics">
+            <column name="code" value="business"/>
+            <column name="title" value="💼 Идеи бизнеса"/>
+            <column name="prompt" value="Дай одну практичную идею для бизнеса или улучшения дела. Кратко: 1–3 предложения."/>
+        </insert>
+        <insert tableName="idea_topics">
+            <column name="code" value="earning"/>
+            <column name="title" value="💰 Идеи заработка"/>
+            <column name="prompt" value="Дай одну идею для заработка или дополнительного дохода. Кратко: 1–3 предложения."/>
+        </insert>
+        <insert tableName="idea_topics">
+            <column name="code" value="startup"/>
+            <column name="title" value="🚀 Идеи стартапов"/>
+            <column name="prompt" value="Дай одну идею для стартапа или нового проекта. Кратко: 1–3 предложения."/>
+        </insert>
+        <insert tableName="idea_topics">
+            <column name="code" value="habits"/>
+            <column name="title" value="📌 Идеи привычек"/>
+            <column name="prompt" value="Дай одну идею полезной привычки или ритуала для продуктивности и роста. Кратко: 1–3 предложения."/>
+        </insert>
+
+        <rollback>
+            <dropTable tableName="idea_topics"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

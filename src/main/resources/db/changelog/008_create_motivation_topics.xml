@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog 
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="008_create_table_motivation_topics" author="m1nd">
+        <preConditions onFail="CONTINUE">
+            <not>
+                <tableExists tableName="motivation_topics"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="motivation_topics" remarks="Темы мотивации: короткие мысли, цитаты, микро-советы">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="code" type="VARCHAR(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="title" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="prompt" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <insert tableName="motivation_topics">
+            <column name="code" value="thoughts"/>
+            <column name="title" value="💭 Короткие мысли"/>
+            <column name="prompt" value="Дай одну короткую мотивирующую мысль или афоризм. Кратко: 1–2 предложения."/>
+        </insert>
+        <insert tableName="motivation_topics">
+            <column name="code" value="quotes"/>
+            <column name="title" value="📜 Цитаты"/>
+            <column name="prompt" value="Дай одну вдохновляющую цитату известного человека с указанием автора. Кратко."/>
+        </insert>
+        <insert tableName="motivation_topics">
+            <column name="code" value="micro_tips"/>
+            <column name="title" value="✨ Микро-советы"/>
+            <column name="prompt" value="Дай один короткий практический совет для мотивации и продуктивности. Одно предложение."/>
+        </insert>
+
+        <rollback>
+            <dropTable tableName="motivation_topics"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

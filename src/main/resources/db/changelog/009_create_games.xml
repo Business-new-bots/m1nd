@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog 
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="009_create_table_games" author="m1nd">
+        <preConditions onFail="CONTINUE">
+            <not>
+                <tableExists tableName="games"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="games" remarks="Игры для раздела Игры: угадай число, викторина и др.">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="code" type="VARCHAR(50)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="title" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="prompt" type="TEXT">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+
+        <insert tableName="games">
+            <column name="code" value="guess_number"/>
+            <column name="title" value="🔢 Угадай число"/>
+            <column name="prompt" value="Игра «Угадай число». Загадай число от 1 до 10. Ответь СТРОГО в формате: первая строка NUMBER: одна цифра от 1 до 10. Вторая строка MESSAGE: приветственное сообщение пользователю, например: Я загадал число от 1 до 10. Попробуй угадать."/>
+        </insert>
+        <insert tableName="games">
+            <column name="code" value="quiz"/>
+            <column name="title" value="❓ Викторина"/>
+            <column name="prompt" value="Сгенерируй один вопрос викторины на русском (разнообразная тема). Формат: QUESTION: текст OPTIONS: a) ... b) ... c) ... d) ... ANSWER: a|b|c|d EXPLANATION: краткое объяснение"/>
+        </insert>
+        <insert tableName="games">
+            <column name="code" value="true_false"/>
+            <column name="title" value="✅ Правда / ложь"/>
+            <column name="prompt" value="Дай одно утверждение (правда или ложь) на любую тему. Формат: STATEMENT: утверждение ANSWER: правда|ложь EXPLANATION: краткое объяснение"/>
+        </insert>
+        <insert tableName="games">
+            <column name="code" value="challenges"/>
+            <column name="title" value="⚡ Быстрые челленджи"/>
+            <column name="prompt" value="Дай один короткий челлендж на 1–2 минуты (действие для пользователя). Одно предложение."/>
+        </insert>
+
+        <rollback>
+            <dropTable tableName="games"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
