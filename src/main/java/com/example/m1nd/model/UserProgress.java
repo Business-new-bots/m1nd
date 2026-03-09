@@ -24,4 +24,16 @@ public class UserProgress {
 
     @Column(name = "tasks_completed", nullable = false)
     private int tasksCompleted = 0;
+
+    @Column(name = "facts_viewed", nullable = false)
+    private int factsViewed = 0;
+
+    @Column(name = "ideas_viewed", nullable = false)
+    private int ideasViewed = 0;
+
+    @Column(name = "motivations_viewed", nullable = false)
+    private int motivationsViewed = 0;
+
+    @Column(name = "games_played", nullable = false)
+    private int gamesPlayed = 0;
 }

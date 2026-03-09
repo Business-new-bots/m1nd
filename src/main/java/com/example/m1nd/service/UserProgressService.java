@@ -20,6 +20,10 @@ public class UserProgressService {
                 p.setUserId(userId);
                 p.setRiddlesSolved(0);
                 p.setTasksCompleted(0);
+                p.setFactsViewed(0);
+                p.setIdeasViewed(0);
+                p.setMotivationsViewed(0);
+                p.setGamesPlayed(0);
                 return userProgressRepository.save(p);
             });
     }
@@ -38,11 +42,55 @@ public class UserProgressService {
         userProgressRepository.save(p);
     }
 
+    @Transactional
+    public void incrementFactsViewed(Long userId) {
+        UserProgress p = getOrCreate(userId);
+        p.setFactsViewed(p.getFactsViewed() + 1);
+        userProgressRepository.save(p);
+    }
+
+    @Transactional
+    public void incrementIdeasViewed(Long userId) {
+        UserProgress p = getOrCreate(userId);
+        p.setIdeasViewed(p.getIdeasViewed() + 1);
+        userProgressRepository.save(p);
+    }
+
+    @Transactional
+    public void incrementMotivationsViewed(Long userId) {
+        UserProgress p = getOrCreate(userId);
+        p.setMotivationsViewed(p.getMotivationsViewed() + 1);
+        userProgressRepository.save(p);
+    }
+
+    @Transactional
+    public void incrementGamesPlayed(Long userId) {
+        UserProgress p = getOrCreate(userId);
+        p.setGamesPlayed(p.getGamesPlayed() + 1);
+        userProgressRepository.save(p);
+    }
+
     public int getRiddlesSolved(Long userId) {
         return getOrCreate(userId).getRiddlesSolved();
     }
 
     public int getTasksCompleted(Long userId) {
         return getOrCreate(userId).getTasksCompleted();
+    }
+
+    public int getFactsViewed(Long userId) {
+        return getOrCreate(userId).getFactsViewed();
+    }
+
+    public int getIdeasViewed(Long userId) {
+        return getOrCreate(userId).getIdeasViewed();
+    }
+
+    public int getMotivationsViewed(Long userId) {
+        return getOrCreate(userId).getMotivationsViewed();
+    }
+
+    public int getGamesPlayed(Long userId) {
+        return getOrCreate(userId).getGamesPlayed();
     }
 }

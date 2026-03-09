@@ -14,5 +14,6 @@
     <include file="classpath:db/changelog/008_create_motivation_topics.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/009_create_games.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/010_create_user_progress.xml" relativeToChangelogFile="false"/>
+    <include file="classpath:db/changelog/011_add_user_progress_counters.xml" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

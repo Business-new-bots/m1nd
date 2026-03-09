@@ -94,30 +94,38 @@ public class MainMenuService {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
-        // 🧠 Факты | 🎯 Задания дня | 🧩 Загадки и тесты
+        // 🧠 Факты | 🎯 Задания дня
         List<InlineKeyboardButton> row1 = new ArrayList<>();
         row1.add(button("🧠 Факты", "main_facts"));
         row1.add(button("🎯 Задания дня", "main_daily_tasks"));
-        row1.add(button("🧩 Загадки и тесты", "main_puzzles_tests"));
 
-        // 💡 Идеи и инсайты | 🚀 Мотивация
+        // 🧩 Загадки и тесты
         List<InlineKeyboardButton> row2 = new ArrayList<>();
-        row2.add(button("💡 Идеи и инсайты", "main_ideas_insights"));
-        row2.add(button("🚀 Мотивация", "main_motivation"));
+        row2.add(button("🧩 Загадки и тесты", "main_puzzles_tests"));
 
-        // 🎮 Игры | 📊 Мой прогресс
+        // 💡 Идеи и инсайты
         List<InlineKeyboardButton> row3 = new ArrayList<>();
-        row3.add(button("🎮 Игры", "main_games"));
-        row3.add(button("📊 Мой прогресс", "main_progress"));
+        row3.add(button("💡 Идеи и инсайты", "main_ideas_insights"));
+
+        // 🚀 Мотивация | 🎮 Игры
+        List<InlineKeyboardButton> row4 = new ArrayList<>();
+        row4.add(button("🚀 Мотивация", "main_motivation"));
+        row4.add(button("🎮 Игры", "main_games"));
+
+        // 📊 Мой прогресс
+        List<InlineKeyboardButton> row5 = new ArrayList<>();
+        row5.add(button("📊 Мой прогресс", "main_progress"));
 
         // Задать вопрос боту
-        List<InlineKeyboardButton> row4 = new ArrayList<>();
-        row4.add(button("💬 Задать вопрос боту", "main_ask_question"));
+        List<InlineKeyboardButton> row6 = new ArrayList<>();
+        row6.add(button("💬 Задать вопрос боту", "main_ask_question"));
 
         keyboard.add(row1);
         keyboard.add(row2);
         keyboard.add(row3);
         keyboard.add(row4);
+        keyboard.add(row5);
+        keyboard.add(row6);
 
         markup.setKeyboard(keyboard);
         return markup;
@@ -185,7 +193,6 @@ public class MainMenuService {
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
             message.setText("Ожидаю вопрос");
-            message.setReplyMarkup(createMainMenuInlineKeyboard());
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
 
@@ -220,9 +227,21 @@ public class MainMenuService {
         if ("main_progress".equals(data)) {
             int riddles = userProgressService.getRiddlesSolved(userId);
             int tasks = userProgressService.getTasksCompleted(userId);
+            int facts = userProgressService.getFactsViewed(userId);
+            int ideas = userProgressService.getIdeasViewed(userId);
+            int motiv = userProgressService.getMotivationsViewed(userId);
+            int games = userProgressService.getGamesPlayed(userId);
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
-            message.setText("📊 Мой прогресс\n\nРешено загадок: " + riddles + "\nВыполнено заданий: " + tasks);
+            message.setText(
+                "📊 Мой прогресс\n\n" +
+                    "Решено загадок: " + riddles + "\n" +
+                    "Выполнено заданий: " + tasks + "\n" +
+                    "Посмотрено фактов: " + facts + "\n" +
+                    "Посмотрено идей: " + ideas + "\n" +
+                    "Получено мотиваций: " + motiv + "\n" +
+                    "Сыграно игр: " + games
+            );
             message.setReplyMarkup(createProgressBackKeyboard());
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
@@ -434,6 +453,7 @@ public class MainMenuService {
         if (data.startsWith("games_")) {
             String gameCode = data.substring("games_".length());
             if ("guess_number".equals(gameCode)) {
+                userProgressService.incrementGamesPlayed(userId);
                 return buildGuessNumberMessage(chatId, userId)
                     .map(msg -> MainMenuResult.single(msg, "✅"))
                     .onErrorResume(error -> {
@@ -442,6 +462,7 @@ public class MainMenuService {
                     });
             }
             if ("quiz".equals(gameCode)) {
+                userProgressService.incrementGamesPlayed(userId);
                 GameSession session = gameSessions.computeIfAbsent(userId, id -> new GameSession());
                 session.gameCode = "quiz";
                 session.quizIndex = 0;
@@ -577,6 +598,7 @@ public class MainMenuService {
 
         return llmService.getAnswer(prompt, userId)
             .map(answer -> {
+                userProgressService.incrementFactsViewed(userId);
                 SendMessage factMessage = new SendMessage();
                 factMessage.setChatId(chatId.toString());
                 factMessage.setText(answer);
@@ -642,6 +664,7 @@ public class MainMenuService {
 
         return llmService.getAnswer(prompt, userId)
             .map(answer -> {
+                userProgressService.incrementIdeasViewed(userId);
                 SendMessage ideaMessage = new SendMessage();
                 ideaMessage.setChatId(chatId.toString());
                 ideaMessage.setText(answer);
@@ -706,6 +729,7 @@ public class MainMenuService {
 
         return llmService.getAnswer(prompt, userId)
             .map(answer -> {
+                userProgressService.incrementMotivationsViewed(userId);
                 SendMessage msg = new SendMessage();
                 msg.setChatId(chatId.toString());
                 msg.setText(answer);
