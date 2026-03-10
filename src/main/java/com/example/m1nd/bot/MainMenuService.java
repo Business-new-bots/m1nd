@@ -94,31 +94,34 @@ public class MainMenuService {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
-        // 🧠 Факты | 🎯 Задания дня
+        // 🧠 Факты
         List<InlineKeyboardButton> row1 = new ArrayList<>();
         row1.add(button("🧠 Факты", "main_facts"));
-        row1.add(button("🎯 Задания дня", "main_daily_tasks"));
+
+        // 🎯 Задания дня
+        List<InlineKeyboardButton> row2 = new ArrayList<>();
+        row2.add(button("🎯 Задания дня", "main_daily_tasks"));
 
         // 🧩 Загадки и тесты
-        List<InlineKeyboardButton> row2 = new ArrayList<>();
-        row2.add(button("🧩 Загадки и тесты", "main_puzzles_tests"));
+        List<InlineKeyboardButton> row3 = new ArrayList<>();
+        row3.add(button("🧩 Загадки и тесты", "main_puzzles_tests"));
 
         // 💡 Идеи и инсайты
-        List<InlineKeyboardButton> row3 = new ArrayList<>();
-        row3.add(button("💡 Идеи и инсайты", "main_ideas_insights"));
+        List<InlineKeyboardButton> row4 = new ArrayList<>();
+        row4.add(button("💡 Идеи и инсайты", "main_ideas_insights"));
 
         // 🚀 Мотивация | 🎮 Игры
-        List<InlineKeyboardButton> row4 = new ArrayList<>();
-        row4.add(button("🚀 Мотивация", "main_motivation"));
-        row4.add(button("🎮 Игры", "main_games"));
+        List<InlineKeyboardButton> row5 = new ArrayList<>();
+        row5.add(button("🚀 Мотивация", "main_motivation"));
+        row5.add(button("🎮 Игры", "main_games"));
 
         // 📊 Мой прогресс
-        List<InlineKeyboardButton> row5 = new ArrayList<>();
-        row5.add(button("📊 Мой прогресс", "main_progress"));
+        List<InlineKeyboardButton> row6 = new ArrayList<>();
+        row6.add(button("📊 Мой прогресс", "main_progress"));
 
         // Задать вопрос боту
-        List<InlineKeyboardButton> row6 = new ArrayList<>();
-        row6.add(button("💬 Задать вопрос боту", "main_ask_question"));
+        List<InlineKeyboardButton> row7 = new ArrayList<>();
+        row7.add(button("💬 Задать вопрос боту", "main_ask_question"));
 
         keyboard.add(row1);
         keyboard.add(row2);
@@ -126,6 +129,7 @@ public class MainMenuService {
         keyboard.add(row4);
         keyboard.add(row5);
         keyboard.add(row6);
+        keyboard.add(row7);
 
         markup.setKeyboard(keyboard);
         return markup;
