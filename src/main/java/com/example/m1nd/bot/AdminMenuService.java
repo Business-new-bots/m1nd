@@ -6,11 +6,13 @@ import com.example.m1nd.model.IdeaTopic;
 import com.example.m1nd.model.MotivationTopic;
 import com.example.m1nd.model.Task;
 import com.example.m1nd.service.AdminService;
+import com.example.m1nd.service.AssistantService;
 import com.example.m1nd.service.FeedbackService;
 import com.example.m1nd.service.StatisticsService;
 import com.example.m1nd.service.SummaryService;
 import com.example.m1nd.service.TaskService;
 import com.example.m1nd.service.UserService;
+import com.example.m1nd.service.PaidServiceService;
 import com.example.m1nd.service.FactTopicService;
 import com.example.m1nd.service.IdeaTopicService;
 import com.example.m1nd.service.GameService;
@@ -37,6 +39,8 @@ public class AdminMenuService {
     private static final Logger log = LoggerFactory.getLogger(AdminMenuService.class);
 
     private final AdminService adminService;
+    private final AssistantService assistantService;
+    private final PaidServiceService paidServiceService;
     private final UserService userService;
     private final FeedbackService feedbackService;
     private final StatisticsService statisticsService;
@@ -49,13 +53,17 @@ public class AdminMenuService {
 
     private final Map<Long, Boolean> waitingForAdminUsername = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> waitingForRemoveAdminUsername = new ConcurrentHashMap<>();
+    private final Map<Long, Boolean> waitingForAssistantUsername = new ConcurrentHashMap<>();
+    private final Map<Long, Boolean> waitingForRemoveAssistantUsername = new ConcurrentHashMap<>();
+    private final Map<Long, String> waitingForPaidServiceCode = new ConcurrentHashMap<>();
 
     private enum AdminEditorState {
         ADD_FACT_TOPIC,
         ADD_IDEA_TOPIC,
         ADD_MOTIVATION_TOPIC,
         ADD_GAME,
-        ADD_TASK
+        ADD_TASK,
+        SET_PAID_SERVICE_PRICE
     }
 
     private final Map<Long, AdminEditorState> adminEditorState = new ConcurrentHashMap<>();
@@ -109,6 +117,22 @@ public class AdminMenuService {
         menuEditorButton.setText("🛠 Редактор меню");
         menuEditorButton.setCallbackData("admin_menu_editor");
 
+        InlineKeyboardButton addAssistantButton = new InlineKeyboardButton();
+        addAssistantButton.setText("➕ Ассистент бизнеса");
+        addAssistantButton.setCallbackData("add_business_assistant_prompt");
+
+        InlineKeyboardButton listAssistantsButton = new InlineKeyboardButton();
+        listAssistantsButton.setText("📋 Ассистенты бизнеса");
+        listAssistantsButton.setCallbackData("list_business_assistants");
+
+        InlineKeyboardButton removeAssistantButton = new InlineKeyboardButton();
+        removeAssistantButton.setText("➖ Удалить ассистента");
+        removeAssistantButton.setCallbackData("remove_business_assistant_prompt");
+
+        InlineKeyboardButton paidServicesButton = new InlineKeyboardButton();
+        paidServicesButton.setText("💰 Платные услуги");
+        paidServicesButton.setCallbackData("paid_services");
+
         InlineKeyboardButton backButton = new InlineKeyboardButton();
         backButton.setText("◀️ Назад");
         backButton.setCallbackData("back_to_main");
@@ -131,6 +155,18 @@ public class AdminMenuService {
         List<InlineKeyboardButton> row6 = new ArrayList<>();
         row6.add(menuEditorButton);
 
+        List<InlineKeyboardButton> row8 = new ArrayList<>();
+        row8.add(addAssistantButton);
+
+        List<InlineKeyboardButton> row9 = new ArrayList<>();
+        row9.add(listAssistantsButton);
+
+        List<InlineKeyboardButton> row10 = new ArrayList<>();
+        row10.add(removeAssistantButton);
+
+        List<InlineKeyboardButton> row11 = new ArrayList<>();
+        row11.add(paidServicesButton);
+
         List<InlineKeyboardButton> row7 = new ArrayList<>();
         row7.add(backButton);
 
@@ -141,6 +177,10 @@ public class AdminMenuService {
         keyboard.add(row4);
         keyboard.add(row5);
         keyboard.add(row6);
+        keyboard.add(row8);
+        keyboard.add(row9);
+        keyboard.add(row10);
+        keyboard.add(row11);
         keyboard.add(row7);
 
         markup.setKeyboard(keyboard);
@@ -252,6 +292,11 @@ public class AdminMenuService {
                 || data.startsWith("menu_delete_game_confirm:")
                 || "menu_delete_task".equals(data)
                 || data.startsWith("menu_delete_task_confirm:")
+                || "add_business_assistant_prompt".equals(data)
+                || "list_business_assistants".equals(data)
+                || "remove_business_assistant_prompt".equals(data)
+                || "paid_services".equals(data)
+                || (data != null && data.startsWith("paid_service_set_price:"))
         );
     }
 
@@ -330,6 +375,45 @@ public class AdminMenuService {
             message.setReplyMarkup(createAdminMenuKeyboard());
             messages.add(message);
             callbackAnswer = "✅ Введите username";
+        } else if ("add_business_assistant_prompt".equals(data)) {
+            waitingForAssistantUsername.put(userId, true);
+
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("📝 Отправьте username пользователя, которого хотите сделать бизнес-ассистентом.\n\n" +
+                "Формат: @username или просто username\n\n" +
+                "Важно: пользователь должен хотя бы раз написать боту, чтобы мы могли отправлять ему вопросы.");
+            message.setReplyMarkup(createAdminMenuKeyboard());
+            messages.add(message);
+            callbackAnswer = "✅ Введите username ассистента";
+        } else if ("list_business_assistants".equals(data)) {
+            messages.add(buildListAssistantsMessage(chatId));
+            callbackAnswer = "✅ Список ассистентов отправлен";
+        } else if ("remove_business_assistant_prompt".equals(data)) {
+            waitingForRemoveAssistantUsername.put(userId, true);
+
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("📝 Отправьте username ассистента, которого хотите отключить.\n\n" +
+                "Формат: @username или просто username");
+            message.setReplyMarkup(createAdminMenuKeyboard());
+            messages.add(message);
+            callbackAnswer = "✅ Введите username ассистента";
+        } else if ("paid_services".equals(data)) {
+            messages.add(buildPaidServicesListMessage(chatId));
+            callbackAnswer = "✅ Выберите услугу";
+        } else if (data != null && data.startsWith("paid_service_set_price:")) {
+            String code = data.substring("paid_service_set_price:".length());
+            waitingForPaidServiceCode.put(userId, code);
+            adminEditorState.put(userId, AdminEditorState.SET_PAID_SERVICE_PRICE);
+
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("💰 Установка цены для услуги \"" + code + "\".\n\n" +
+                "Введите новую цену в звёздах (целое число). Например, 1, 5, 10.");
+            msg.setReplyMarkup(createAdminMenuKeyboard());
+            messages.add(msg);
+            callbackAnswer = "✅ Введите цену";
         } else if (data != null && data.startsWith("add_admin:")) {
             String targetUsername = data.substring("add_admin:".length());
             messages.add(buildAddAdminCallbackMessage(chatId, username, targetUsername));
@@ -485,6 +569,18 @@ public class AdminMenuService {
             return AdminTextResult.handled(messages);
         }
 
+        if (waitingForAssistantUsername.getOrDefault(userId, false)) {
+            messages.add(buildAddAssistantUsernameMessage(chatId, messageText));
+            waitingForAssistantUsername.remove(userId);
+            return AdminTextResult.handled(messages);
+        }
+
+        if (waitingForRemoveAssistantUsername.getOrDefault(userId, false)) {
+            messages.add(buildRemoveAssistantUsernameMessage(chatId, messageText));
+            waitingForRemoveAssistantUsername.remove(userId);
+            return AdminTextResult.handled(messages);
+        }
+
         if (adminEditorState.containsKey(userId)) {
             AdminEditorState state = adminEditorState.get(userId);
             switch (state) {
@@ -535,6 +631,55 @@ public class AdminMenuService {
                     SendMessage msg = new SendMessage();
                     msg.setChatId(chatId.toString());
                     msg.setText("✅ Задание добавлено.");
+                    msg.setReplyMarkup(createAdminMenuKeyboard());
+                    messages.add(msg);
+                }
+                case SET_PAID_SERVICE_PRICE -> {
+                    String code = waitingForPaidServiceCode.remove(userId);
+                    adminEditorState.remove(userId);
+
+                    int stars;
+                    try {
+                        stars = Integer.parseInt(messageText.trim());
+                        if (stars < 0) {
+                            stars = 0;
+                        }
+                    } catch (NumberFormatException e) {
+                        SendMessage msg = new SendMessage();
+                        msg.setChatId(chatId.toString());
+                        msg.setText("❌ Некорректное значение. Введите целое число звёзд, например 1, 5, 10.");
+                        msg.setReplyMarkup(createAdminMenuKeyboard());
+                        messages.add(msg);
+                        return AdminTextResult.handled(messages);
+                    }
+
+                    if (code == null || code.isBlank()) {
+                        SendMessage msg = new SendMessage();
+                        msg.setChatId(chatId.toString());
+                        msg.setText("❌ Внутренняя ошибка: код услуги не найден.");
+                        msg.setReplyMarkup(createAdminMenuKeyboard());
+                        messages.add(msg);
+                        return AdminTextResult.handled(messages);
+                    }
+
+                    String title = switch (code) {
+                        case PaidServiceService.BUSINESS_ASK_EXPERT_CODE -> "Вопрос бизнесмену";
+                        default -> code;
+                    };
+
+                    String desc = "Платная услуга \"" + title + "\"";
+
+                    paidServiceService.setPriceInStars(
+                        code,
+                        title,
+                        desc,
+                        "XTR",
+                        stars
+                    );
+
+                    SendMessage msg = new SendMessage();
+                    msg.setChatId(chatId.toString());
+                    msg.setText("✅ Цена для услуги \"" + title + "\" установлена: " + stars + " ⭐.");
                     msg.setReplyMarkup(createAdminMenuKeyboard());
                     messages.add(msg);
                 }
@@ -610,6 +755,83 @@ public class AdminMenuService {
         }
 
         message.setReplyMarkup(createAdminMenuKeyboard());
+        return message;
+    }
+
+    private SendMessage buildListAssistantsMessage(Long chatId) {
+        List<com.example.m1nd.model.Assistant> assistants = assistantService.getActiveAssistants();
+
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+
+        if (assistants.isEmpty()) {
+            message.setText("📋 Активных ассистентов бизнеса пока нет.");
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append("📋 Активные ассистенты бизнеса (").append(assistants.size()).append("):\n\n");
+
+            for (int i = 0; i < assistants.size(); i++) {
+                com.example.m1nd.model.Assistant a = assistants.get(i);
+                sb.append(i + 1).append(". ");
+                if (a.getUsername() != null && !a.getUsername().isBlank()) {
+                    sb.append(a.getUsername());
+                } else {
+                    sb.append("ID: ").append(a.getTelegramUserId());
+                }
+                sb.append("\n");
+            }
+
+            message.setText(sb.toString());
+        }
+
+        message.setReplyMarkup(createAdminMenuKeyboard());
+        return message;
+    }
+
+    private SendMessage buildPaidServicesListMessage(Long chatId) {
+        List<com.example.m1nd.model.PaidService> services = paidServiceService.findActiveServices();
+
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+        if (services.isEmpty()) {
+            // Если услуг пока нет в БД, показываем дефолтную услугу «Вопрос бизнесмену»
+            InlineKeyboardButton b = new InlineKeyboardButton();
+            b.setText("Вопрос бизнесмену");
+            b.setCallbackData("paid_service_set_price:" + PaidServiceService.BUSINESS_ASK_EXPERT_CODE);
+            List<InlineKeyboardButton> row = new ArrayList<>();
+            row.add(b);
+            keyboard.add(row);
+
+            message.setText("💰 Выберите платную услугу для изменения цены:");
+        } else {
+            message.setText("💰 Платные услуги. Выберите услугу для изменения цены:");
+            for (com.example.m1nd.model.PaidService s : services) {
+                InlineKeyboardButton b = new InlineKeyboardButton();
+                String title = s.getTitle() != null ? s.getTitle() : s.getCode();
+                int stars = s.getPriceUnits() != null ? s.getPriceUnits() / 100 : 0;
+                b.setText(title + " — " + stars + " ⭐");
+                b.setCallbackData("paid_service_set_price:" + s.getCode());
+
+                List<InlineKeyboardButton> row = new ArrayList<>();
+                row.add(b);
+                keyboard.add(row);
+            }
+        }
+
+        InlineKeyboardButton backButton = new InlineKeyboardButton();
+        backButton.setText("◀️ Назад");
+        backButton.setCallbackData("admin_menu");
+        List<InlineKeyboardButton> backRow = new ArrayList<>();
+        backRow.add(backButton);
+        keyboard.add(backRow);
+
+        markup.setKeyboard(keyboard);
+        message.setReplyMarkup(markup);
+
         return message;
     }
 
@@ -840,6 +1062,24 @@ public class AdminMenuService {
         return message;
     }
 
+    private SendMessage buildAddAssistantUsernameMessage(Long chatId, String messageText) {
+        String targetUsername = messageText.trim();
+
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+
+        var assistantOpt = assistantService.addAssistantByUsername(targetUsername);
+
+        if (assistantOpt.isPresent()) {
+            message.setText("✅ Ассистент бизнеса @" + targetUsername.replace("@", "") + " успешно добавлен!");
+        } else {
+            message.setText("❌ Не удалось добавить ассистента. Убедитесь, что пользователь уже писал боту и username указан верно.");
+        }
+
+        message.setReplyMarkup(createAdminMenuKeyboard());
+        return message;
+    }
+
     private SendMessage buildRemoveAdminUsernameMessage(Long chatId, String currentUsername, String messageText) {
         String targetUsername = messageText.trim();
 
@@ -866,6 +1106,24 @@ public class AdminMenuService {
         }
 
         message.setReplyMarkup(createAdminKeyboard());
+        return message;
+    }
+
+    private SendMessage buildRemoveAssistantUsernameMessage(Long chatId, String messageText) {
+        String targetUsername = messageText.trim();
+
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+
+        boolean removed = assistantService.deactivateAssistantByUsername(targetUsername);
+
+        if (removed) {
+            message.setText("✅ Ассистент бизнеса @" + targetUsername.replace("@", "") + " отключён.");
+        } else {
+            message.setText("❌ Не удалось отключить ассистента. Возможно, он не найден среди активных.");
+        }
+
+        message.setReplyMarkup(createAdminMenuKeyboard());
         return message;
     }
 

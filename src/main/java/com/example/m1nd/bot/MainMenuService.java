@@ -119,6 +119,10 @@ public class MainMenuService {
         List<InlineKeyboardButton> row6 = new ArrayList<>();
         row6.add(button("📊 Мой прогресс", "main_progress"));
 
+        // 💼 Разговор с бизнесом
+        List<InlineKeyboardButton> rowBiz = new ArrayList<>();
+        rowBiz.add(button("💼 Разговор с бизнесом", "main_business_chat"));
+
         // Задать вопрос боту
         List<InlineKeyboardButton> row7 = new ArrayList<>();
         row7.add(button("💬 Задать вопрос боту", "main_ask_question"));
@@ -129,6 +133,7 @@ public class MainMenuService {
         keyboard.add(row4);
         keyboard.add(row5);
         keyboard.add(row6);
+        keyboard.add(rowBiz);
         keyboard.add(row7);
 
         markup.setKeyboard(keyboard);
@@ -247,6 +252,30 @@ public class MainMenuService {
                     "Сыграно игр: " + games
             );
             message.setReplyMarkup(createProgressBackKeyboard());
+            return Mono.just(MainMenuResult.single(message, "✅"));
+        }
+
+        // Разговор с бизнесом — подменю
+        if ("main_business_chat".equals(data)) {
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText("💼 Разговор с бизнесом\n\n" +
+                "Здесь вы можете задать платный вопрос реальному бизнесмену.");
+
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+            List<InlineKeyboardButton> row1 = new ArrayList<>();
+            row1.add(button("⭐ Задать вопрос бизнесмену", "business_ask_expert"));
+            keyboard.add(row1);
+
+            List<InlineKeyboardButton> row2 = new ArrayList<>();
+            row2.add(button("◀️ Главное меню", "main_menu_back"));
+            keyboard.add(row2);
+
+            markup.setKeyboard(keyboard);
+            message.setReplyMarkup(markup);
+
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
 

@@ -2,9 +2,12 @@ package com.example.m1nd.bot;
 
 import com.example.m1nd.config.TelegramBotConfig;
 import com.example.m1nd.service.AdminService;
+import com.example.m1nd.service.AssistantService;
 import com.example.m1nd.service.FeedbackService;
 import com.example.m1nd.service.LLMService;
 import com.example.m1nd.service.SummaryService;
+import com.example.m1nd.service.BusinessQuestionService;
+import com.example.m1nd.service.PaidServiceService;
 import com.example.m1nd.service.UserService;
 import com.example.m1nd.service.WorkingApiService;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
@@ -14,6 +17,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.Keyboard
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.AnswerPreCheckoutQuery;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -24,7 +28,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendInvoice;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.payments.LabeledPrice;
+import org.telegram.telegrambots.meta.api.objects.payments.PreCheckoutQuery;
+import org.telegram.telegrambots.meta.api.objects.payments.SuccessfulPayment;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import reactor.core.publisher.Mono;
 
@@ -46,6 +54,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private final LLMService llmService;
     private final WorkingApiService workingApiService;
     private final AdminService adminService;
+    private final AssistantService assistantService;
+    private final BusinessQuestionService businessQuestionService;
+    private final PaidServiceService paidServiceService;
     private final FeedbackService feedbackService;
     private final SummaryService summaryService;
     private final MainMenuService mainMenuService;
@@ -62,6 +73,10 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     
     @Value("${app.summary.delay-minutes:5}")
     private int summaryDelayMinutes;
+
+    private static final String EXPERT_QUESTION_PAYLOAD = "expert_question_1";
+    private static final String STARS_CURRENCY = "XTR";
+    private static final int EXPERT_QUESTION_PRICE = 100; // 1 Star (дефолт)
     
     // Планировщик для отправки опросов
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
@@ -74,6 +89,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private final java.util.Map<Long, Integer> pendingRatings = new java.util.concurrent.ConcurrentHashMap<>();
     // Храним запланированные задачи создания сводки для каждого пользователя
     private final java.util.Map<Long, ScheduledFuture<?>> scheduledSummaries = new java.util.concurrent.ConcurrentHashMap<>();
+    // Храним флаг, что пользователь может задать платный вопрос бизнесу
+    private final java.util.Map<Long, Boolean> canAskBusinessQuestion = new java.util.concurrent.ConcurrentHashMap<>();
     
     @Override
     public String getBotUsername() {
@@ -117,7 +134,40 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
         logger.info("Получено обновление: {}", update);
-        
+
+        // Обработка оплаты Stars
+        if (update.hasPreCheckoutQuery()) {
+            PreCheckoutQuery q = update.getPreCheckoutQuery();
+            AnswerPreCheckoutQuery answer = new AnswerPreCheckoutQuery();
+            answer.setPreCheckoutQueryId(q.getId());
+            answer.setOk(true);
+            try {
+                execute(answer);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при ответе на PreCheckoutQuery", e);
+            }
+            return;
+        }
+
+        if (update.hasMessage() && update.getMessage().hasSuccessfulPayment()) {
+            SuccessfulPayment payment = update.getMessage().getSuccessfulPayment();
+            if (EXPERT_QUESTION_PAYLOAD.equals(payment.getInvoicePayload())) {
+                Long chatId = update.getMessage().getChatId();
+                Long userId = update.getMessage().getFrom().getId();
+                canAskBusinessQuestion.put(userId, true);
+                SendMessage msg = new SendMessage();
+                msg.setChatId(chatId.toString());
+                msg.setText("⭐ Оплата получена.\nНапишите свой вопрос бизнесмену одним сообщением.");
+                try {
+                    execute(msg);
+                } catch (TelegramApiException e) {
+                    logger.error("Ошибка при отправке сообщения после успешной оплаты", e);
+                }
+                // здесь можно пометить userId как «оплатил вопрос» в Map/БД
+            }
+            return;
+        }
+
         // Обработка callback от кнопок
         if (update.hasCallbackQuery()) {
             handleCallbackQuery(update.getCallbackQuery());
@@ -128,10 +178,23 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             String messageText = update.getMessage().getText().trim();
             logger.info("Получено сообщение: '{}' от пользователя {}", 
                 messageText, update.getMessage().getFrom().getId());
+            Long userId = update.getMessage().getFrom().getId();
             
             // Нормализуем команду (убираем регистр и параметры)
             String normalizedText = messageText.toLowerCase();
             
+            // Если сообщение от ассистента бизнеса и это ответ на вопрос
+            if (assistantService.isAssistant(userId) && normalizedText.startsWith("/answer_")) {
+                handleAssistantAnswer(update, messageText);
+                return;
+            }
+
+            // Платный вопрос бизнесу после оплаты
+            if (canAskBusinessQuestion.getOrDefault(userId, false)) {
+                handlePaidBusinessQuestion(update, messageText);
+                return;
+            }
+
             // Обработка команды /start (независимо от регистра и параметров)
             if (normalizedText.startsWith("/start")) {
                 logger.info("Обработка команды /start");
@@ -160,7 +223,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             logger.info("Обработка команды /addadmin");
             handleAddAdminCommand(update, messageText);
         } else {
-            Long userId = update.getMessage().getFrom().getId();
 
             AdminMenuService.AdminTextResult adminTextResult =
                 adminMenuService.handleAdminText(update, messageText);
@@ -175,7 +237,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 }
             } else {
                 Long chatId = update.getMessage().getChatId();
-                MainMenuService.PuzzleAnswerResult puzzleResult =
+                    MainMenuService.PuzzleAnswerResult puzzleResult =
                     mainMenuService.handlePuzzleAnswer(chatId, userId, messageText);
 
                 if (puzzleResult.isHandled()) {
@@ -526,7 +588,13 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             handleFeedbackCallback(callbackQuery, data);
             return;
         }
-        
+
+        if ("business_ask_expert".equals(data)) {
+            sendExpertQuestionInvoice(chatId);
+            sendCallbackAnswer(callbackQuery.getId(), "✅ Оплата вопроса");
+            return;
+        }
+
         // Обработка главного меню и фактов (доступно всем пользователям)
         if (mainMenuService.canHandleCallback(data)) {
             mainMenuService.handleCallback(callbackQuery)
@@ -698,6 +766,172 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             logger.info("Опрос отправлен пользователю {}", userId);
         } catch (TelegramApiException e) {
             logger.error("Ошибка при отправке опроса", e);
+        }
+    }
+
+    private void sendExpertQuestionInvoice(Long chatId) {
+        SendInvoice invoice = new SendInvoice();
+        invoice.setChatId(chatId.toString());
+        invoice.setTitle("Вопрос бизнесмену");
+        int priceUnits = paidServiceService.getPriceUnitsOrDefault(
+            PaidServiceService.BUSINESS_ASK_EXPERT_CODE,
+            "Вопрос бизнесмену",
+            "Оплата одного вопроса реальному бизнесмену.",
+            STARS_CURRENCY,
+            EXPERT_QUESTION_PRICE
+        );
+
+        int stars = priceUnits / 100;
+
+        invoice.setDescription("Оплата одного вопроса реальному бизнесмену (" + stars + " ⭐).");
+        invoice.setPayload(EXPERT_QUESTION_PAYLOAD);
+        invoice.setCurrency(STARS_CURRENCY);
+        invoice.setProviderToken(null); // для Stars провайдер не нужен
+
+        List<LabeledPrice> prices = new ArrayList<>();
+        prices.add(new LabeledPrice("Вопрос бизнесмену", priceUnits));
+        invoice.setPrices(prices);
+
+        try {
+            execute(invoice);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке инвойса", e);
+        }
+    }
+
+    private void handlePaidBusinessQuestion(Update update, String messageText) {
+        Long userId = update.getMessage().getFrom().getId();
+        Long chatId = update.getMessage().getChatId();
+
+        canAskBusinessQuestion.remove(userId);
+
+        var assistantOpt = assistantService.findRandomActiveAssistant();
+        if (assistantOpt.isEmpty()) {
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("❌ Сейчас нет доступных бизнес-ассистентов. Попробуйте позже.");
+            try {
+                execute(msg);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения об отсутствии ассистентов", e);
+            }
+            return;
+        }
+
+        var assistant = assistantOpt.get();
+        Long assistantUserId = assistant.getTelegramUserId();
+
+        var question = businessQuestionService.createQuestion(userId, assistantUserId, messageText);
+
+        SendMessage confirm = new SendMessage();
+        confirm.setChatId(chatId.toString());
+        confirm.setText("💼 Ваш вопрос отправлен бизнесмену. Вы получите ответ в этом чате.");
+        try {
+            execute(confirm);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке подтверждения пользователю", e);
+        }
+
+        if (assistantUserId == null) {
+            logger.warn("У ассистента нет telegram_user_id, не могу отправить вопрос");
+            return;
+        }
+
+        SendMessage toAssistant = new SendMessage();
+        toAssistant.setChatId(assistantUserId.toString());
+        toAssistant.setText(
+            "💼 Новый платный вопрос от пользователя " + userId + ":\n\n" +
+                messageText + "\n\n" +
+                "Ответьте командой в этом чате:\n" +
+                "/answer_" + question.getId() + " ваш ответ");
+        try {
+            execute(toAssistant);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке вопроса ассистенту", e);
+        }
+    }
+
+    private void handleAssistantAnswer(Update update, String messageText) {
+        Long assistantUserId = update.getMessage().getFrom().getId();
+        Long chatId = update.getMessage().getChatId();
+
+        String text = messageText.trim();
+        int spaceIndex = text.indexOf(' ');
+        if (!text.startsWith("/answer_") || spaceIndex <= "/answer_".length()) {
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("❗ Используйте формат:\n/answer_<id> текст ответа");
+            try {
+                execute(msg);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке подсказки ассистенту", e);
+            }
+            return;
+        }
+
+        String idPart = text.substring("/answer_".length(), spaceIndex).trim();
+        String answerText = text.substring(spaceIndex + 1).trim();
+
+        Long questionId;
+        try {
+            questionId = Long.parseLong(idPart);
+        } catch (NumberFormatException e) {
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("❌ Некорректный идентификатор вопроса в команде.");
+            try {
+                execute(msg);
+            } catch (TelegramApiException ex) {
+                logger.error("Ошибка при отправке сообщения об ошибке ассистенту", ex);
+            }
+            return;
+        }
+
+        var savedOpt = businessQuestionService.saveAnswer(questionId, answerText);
+        if (savedOpt.isEmpty()) {
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("❌ Вопрос с таким идентификатором не найден.");
+            try {
+                execute(msg);
+            } catch (TelegramApiException ex) {
+                logger.error("Ошибка при отправке сообщения об ошибке ассистенту", ex);
+            }
+            return;
+        }
+
+        var question = savedOpt.get();
+        if (!assistantUserId.equals(question.getAssistantUserId())) {
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText("❌ Этот вопрос назначен другому ассистенту.");
+            try {
+                execute(msg);
+            } catch (TelegramApiException ex) {
+                logger.error("Ошибка при отправке сообщения об ошибке ассистенту", ex);
+            }
+            return;
+        }
+
+        Long targetUserId = question.getUserId();
+        if (targetUserId != null) {
+            SendMessage toUser = new SendMessage();
+            toUser.setChatId(targetUserId.toString());
+            toUser.setText("💼 Ответ бизнесмена:\n\n" + answerText);
+            try {
+                execute(toUser);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке ответа пользователю", e);
+            }
+        }
+
+        SendMessage confirm = new SendMessage();
+        confirm.setChatId(chatId.toString());
+        confirm.setText("✅ Ответ отправлен пользователю.");
+        try {
+            execute(confirm);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке подтверждения ассистенту", e);
         }
     }
     
