@@ -786,7 +786,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         invoice.setDescription("Оплата одного вопроса реальному бизнесмену (" + stars + " ⭐).");
         invoice.setPayload(EXPERT_QUESTION_PAYLOAD);
         invoice.setCurrency(STARS_CURRENCY);
-        invoice.setProviderToken(null); // для Stars провайдер не нужен
 
         List<LabeledPrice> prices = new ArrayList<>();
         prices.add(new LabeledPrice("Вопрос бизнесмену", priceUnits));
