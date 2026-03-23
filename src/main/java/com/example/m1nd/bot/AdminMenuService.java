@@ -1,22 +1,11 @@
 package com.example.m1nd.bot;
 
-import com.example.m1nd.model.FactTopic;
-import com.example.m1nd.model.Game;
-import com.example.m1nd.model.IdeaTopic;
-import com.example.m1nd.model.MotivationTopic;
-import com.example.m1nd.model.Task;
 import com.example.m1nd.service.AdminService;
 import com.example.m1nd.service.AssistantService;
 import com.example.m1nd.service.FeedbackService;
 import com.example.m1nd.service.StatisticsService;
 import com.example.m1nd.service.SummaryService;
-import com.example.m1nd.service.TaskService;
 import com.example.m1nd.service.UserService;
-import com.example.m1nd.service.PaidServiceService;
-import com.example.m1nd.service.FactTopicService;
-import com.example.m1nd.service.IdeaTopicService;
-import com.example.m1nd.service.GameService;
-import com.example.m1nd.service.MotivationTopicService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,34 +29,14 @@ public class AdminMenuService {
 
     private final AdminService adminService;
     private final AssistantService assistantService;
-    private final PaidServiceService paidServiceService;
     private final UserService userService;
     private final FeedbackService feedbackService;
     private final StatisticsService statisticsService;
     private final SummaryService summaryService;
-    private final FactTopicService factTopicService;
-    private final IdeaTopicService ideaTopicService;
-    private final MotivationTopicService motivationTopicService;
-    private final GameService gameService;
-    private final TaskService taskService;
-
     private final Map<Long, Boolean> waitingForAdminUsername = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> waitingForRemoveAdminUsername = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> waitingForAssistantUsername = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> waitingForRemoveAssistantUsername = new ConcurrentHashMap<>();
-    private final Map<Long, String> waitingForPaidServiceCode = new ConcurrentHashMap<>();
-
-    private enum AdminEditorState {
-        ADD_FACT_TOPIC,
-        ADD_IDEA_TOPIC,
-        ADD_MOTIVATION_TOPIC,
-        ADD_GAME,
-        ADD_TASK,
-        SET_PAID_SERVICE_PRICE
-    }
-
-    private final Map<Long, AdminEditorState> adminEditorState = new ConcurrentHashMap<>();
-
     public InlineKeyboardMarkup createAdminKeyboard() {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
 
@@ -113,10 +82,6 @@ public class AdminMenuService {
         activityButton.setText("📈 Активность");
         activityButton.setCallbackData("admin_activity");
 
-        InlineKeyboardButton menuEditorButton = new InlineKeyboardButton();
-        menuEditorButton.setText("🛠 Редактор меню");
-        menuEditorButton.setCallbackData("admin_menu_editor");
-
         InlineKeyboardButton addAssistantButton = new InlineKeyboardButton();
         addAssistantButton.setText("➕ Ассистент бизнеса");
         addAssistantButton.setCallbackData("add_business_assistant_prompt");
@@ -128,10 +93,6 @@ public class AdminMenuService {
         InlineKeyboardButton removeAssistantButton = new InlineKeyboardButton();
         removeAssistantButton.setText("➖ Удалить ассистента");
         removeAssistantButton.setCallbackData("remove_business_assistant_prompt");
-
-        InlineKeyboardButton paidServicesButton = new InlineKeyboardButton();
-        paidServicesButton.setText("💰 Платные услуги");
-        paidServicesButton.setCallbackData("paid_services");
 
         InlineKeyboardButton backButton = new InlineKeyboardButton();
         backButton.setText("◀️ Назад");
@@ -152,9 +113,6 @@ public class AdminMenuService {
         List<InlineKeyboardButton> row5 = new ArrayList<>();
         row5.add(activityButton);
 
-        List<InlineKeyboardButton> row6 = new ArrayList<>();
-        row6.add(menuEditorButton);
-
         List<InlineKeyboardButton> row8 = new ArrayList<>();
         row8.add(addAssistantButton);
 
@@ -163,9 +121,6 @@ public class AdminMenuService {
 
         List<InlineKeyboardButton> row10 = new ArrayList<>();
         row10.add(removeAssistantButton);
-
-        List<InlineKeyboardButton> row11 = new ArrayList<>();
-        row11.add(paidServicesButton);
 
         List<InlineKeyboardButton> row7 = new ArrayList<>();
         row7.add(backButton);
@@ -176,11 +131,9 @@ public class AdminMenuService {
         keyboard.add(row3);
         keyboard.add(row4);
         keyboard.add(row5);
-        keyboard.add(row6);
         keyboard.add(row8);
         keyboard.add(row9);
         keyboard.add(row10);
-        keyboard.add(row11);
         keyboard.add(row7);
 
         markup.setKeyboard(keyboard);
@@ -276,27 +229,9 @@ public class AdminMenuService {
                 || data.startsWith("activity_user:")
                 || "remove_admin_prompt".equals(data)
                 || data.startsWith("add_admin:")
-                || "admin_menu_editor".equals(data)
-                || "menu_add_fact_topic".equals(data)
-                || "menu_add_idea_topic".equals(data)
-                || "menu_add_task".equals(data)
-                || "menu_delete_fact_topic".equals(data)
-                || data.startsWith("menu_delete_fact_topic_confirm:")
-                || "menu_delete_idea_topic".equals(data)
-                || data.startsWith("menu_delete_idea_topic_confirm:")
-                || "menu_add_motivation_topic".equals(data)
-                || "menu_delete_motivation_topic".equals(data)
-                || data.startsWith("menu_delete_motivation_topic_confirm:")
-                || "menu_add_game".equals(data)
-                || "menu_delete_game".equals(data)
-                || data.startsWith("menu_delete_game_confirm:")
-                || "menu_delete_task".equals(data)
-                || data.startsWith("menu_delete_task_confirm:")
                 || "add_business_assistant_prompt".equals(data)
                 || "list_business_assistants".equals(data)
                 || "remove_business_assistant_prompt".equals(data)
-                || "paid_services".equals(data)
-                || (data != null && data.startsWith("paid_service_set_price:"))
         );
     }
 
@@ -399,142 +334,10 @@ public class AdminMenuService {
             message.setReplyMarkup(createAdminMenuKeyboard());
             messages.add(message);
             callbackAnswer = "✅ Введите username ассистента";
-        } else if ("paid_services".equals(data)) {
-            messages.add(buildPaidServicesListMessage(chatId));
-            callbackAnswer = "✅ Выберите услугу";
-        } else if (data != null && data.startsWith("paid_service_set_price:")) {
-            String code = data.substring("paid_service_set_price:".length());
-            waitingForPaidServiceCode.put(userId, code);
-            adminEditorState.put(userId, AdminEditorState.SET_PAID_SERVICE_PRICE);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("💰 Установка цены для услуги \"" + code + "\".\n\n" +
-                "Введите новую цену в звёздах (целое число). Например, 1, 5, 10.");
-            msg.setReplyMarkup(createAdminMenuKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Введите цену";
         } else if (data != null && data.startsWith("add_admin:")) {
             String targetUsername = data.substring("add_admin:".length());
             messages.add(buildAddAdminCallbackMessage(chatId, username, targetUsername));
             callbackAnswer = "✅ Администратор добавлен";
-        } else if ("admin_menu_editor".equals(data)) {
-            SendMessage message = new SendMessage();
-            message.setChatId(chatId.toString());
-            message.setText("🛠 Редактор главного меню\n\nВыбери действие:");
-            message.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(message);
-            callbackAnswer = "✅ Редактор меню";
-        } else if ("menu_add_fact_topic".equals(data)) {
-            adminEditorState.put(userId, AdminEditorState.ADD_FACT_TOPIC);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("🧠 Введите название новой темы фактов.\n\nНапример: \"Факты о мозге\".");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Введите название темы";
-        } else if ("menu_add_idea_topic".equals(data)) {
-            adminEditorState.put(userId, AdminEditorState.ADD_IDEA_TOPIC);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("💡 Введите название новой темы для идей.\n\nНапример: «Идеи бизнеса».");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Введите название темы";
-        } else if ("menu_add_motivation_topic".equals(data)) {
-            adminEditorState.put(userId, AdminEditorState.ADD_MOTIVATION_TOPIC);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("🚀 Введите название новой темы мотивации.\n\nНапример: «Короткие мысли», «Цитаты», «Микро-советы».");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Введите название темы";
-        } else if ("menu_add_game".equals(data)) {
-            adminEditorState.put(userId, AdminEditorState.ADD_GAME);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("🎮 Введите название новой игры.\n\nНапример: Угадай число, Викторина.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Введите название игры";
-        } else if ("menu_add_task".equals(data)) {
-            adminEditorState.put(userId, AdminEditorState.ADD_TASK);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("🎯 Введите текст задания одной строкой.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Введите текст задания";
-        } else if ("menu_delete_fact_topic".equals(data)) {
-            messages.add(buildDeleteFactTopicsMessage(chatId));
-            callbackAnswer = "✅";
-        } else if (data != null && data.startsWith("menu_delete_fact_topic_confirm:")) {
-            Long topicId = Long.parseLong(data.substring("menu_delete_fact_topic_confirm:".length()));
-            factTopicService.deleteById(topicId);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("✅ Тема фактов удалена.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Удалено";
-        } else if ("menu_delete_idea_topic".equals(data)) {
-            messages.add(buildDeleteIdeaTopicsMessage(chatId));
-            callbackAnswer = "✅";
-        } else if (data != null && data.startsWith("menu_delete_idea_topic_confirm:")) {
-            Long topicId = Long.parseLong(data.substring("menu_delete_idea_topic_confirm:".length()));
-            ideaTopicService.deleteById(topicId);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("✅ Тема идей удалена.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Удалено";
-        } else if ("menu_delete_motivation_topic".equals(data)) {
-            messages.add(buildDeleteMotivationTopicsMessage(chatId));
-            callbackAnswer = "✅";
-        } else if (data != null && data.startsWith("menu_delete_motivation_topic_confirm:")) {
-            Long topicId = Long.parseLong(data.substring("menu_delete_motivation_topic_confirm:".length()));
-            motivationTopicService.deleteById(topicId);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("✅ Тема мотивации удалена.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Удалено";
-        } else if ("menu_delete_game".equals(data)) {
-            messages.add(buildDeleteGamesMessage(chatId));
-            callbackAnswer = "✅";
-        } else if (data != null && data.startsWith("menu_delete_game_confirm:")) {
-            Long gameId = Long.parseLong(data.substring("menu_delete_game_confirm:".length()));
-            gameService.deleteById(gameId);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("✅ Игра удалена.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Удалено";
-        } else if ("menu_delete_task".equals(data)) {
-            messages.add(buildDeleteTasksMessage(chatId));
-            callbackAnswer = "✅";
-        } else if (data != null && data.startsWith("menu_delete_task_confirm:")) {
-            Long taskId = Long.parseLong(data.substring("menu_delete_task_confirm:".length()));
-            taskService.deleteTask(taskId);
-
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("✅ Задание удалено.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-            messages.add(msg);
-            callbackAnswer = "✅ Удалено";
         } else {
             callbackAnswer = "❌ Неизвестная команда";
         }
@@ -578,112 +381,6 @@ public class AdminMenuService {
         if (waitingForRemoveAssistantUsername.getOrDefault(userId, false)) {
             messages.add(buildRemoveAssistantUsernameMessage(chatId, messageText));
             waitingForRemoveAssistantUsername.remove(userId);
-            return AdminTextResult.handled(messages);
-        }
-
-        if (adminEditorState.containsKey(userId)) {
-            AdminEditorState state = adminEditorState.get(userId);
-            switch (state) {
-                case ADD_FACT_TOPIC -> {
-                    factTopicService.createFromTitle(messageText.trim(), userId);
-                    adminEditorState.remove(userId);
-
-                    SendMessage msg = new SendMessage();
-                    msg.setChatId(chatId.toString());
-                    msg.setText("✅ Тема фактов добавлена: " + messageText.trim());
-                    msg.setReplyMarkup(createAdminMenuKeyboard());
-                    messages.add(msg);
-                }
-                case ADD_IDEA_TOPIC -> {
-                    ideaTopicService.createFromTitle(messageText.trim(), userId);
-                    adminEditorState.remove(userId);
-
-                    SendMessage msg = new SendMessage();
-                    msg.setChatId(chatId.toString());
-                    msg.setText("✅ Тема для идей добавлена: " + messageText.trim());
-                    msg.setReplyMarkup(createAdminMenuKeyboard());
-                    messages.add(msg);
-                }
-                case ADD_MOTIVATION_TOPIC -> {
-                    motivationTopicService.createFromTitle(messageText.trim(), userId);
-                    adminEditorState.remove(userId);
-
-                    SendMessage msg = new SendMessage();
-                    msg.setChatId(chatId.toString());
-                    msg.setText("✅ Тема мотивации добавлена: " + messageText.trim());
-                    msg.setReplyMarkup(createAdminMenuKeyboard());
-                    messages.add(msg);
-                }
-                case ADD_GAME -> {
-                    gameService.createFromTitle(messageText.trim(), userId);
-                    adminEditorState.remove(userId);
-
-                    SendMessage msg = new SendMessage();
-                    msg.setChatId(chatId.toString());
-                    msg.setText("✅ Игра добавлена: " + messageText.trim());
-                    msg.setReplyMarkup(createAdminMenuKeyboard());
-                    messages.add(msg);
-                }
-                case ADD_TASK -> {
-                    taskService.createTask(messageText.trim(), "daily", userId);
-                    adminEditorState.remove(userId);
-
-                    SendMessage msg = new SendMessage();
-                    msg.setChatId(chatId.toString());
-                    msg.setText("✅ Задание добавлено.");
-                    msg.setReplyMarkup(createAdminMenuKeyboard());
-                    messages.add(msg);
-                }
-                case SET_PAID_SERVICE_PRICE -> {
-                    String code = waitingForPaidServiceCode.remove(userId);
-                    adminEditorState.remove(userId);
-
-                    int stars;
-                    try {
-                        stars = Integer.parseInt(messageText.trim());
-                        if (stars < 0) {
-                            stars = 0;
-                        }
-                    } catch (NumberFormatException e) {
-                        SendMessage msg = new SendMessage();
-                        msg.setChatId(chatId.toString());
-                        msg.setText("❌ Некорректное значение. Введите целое число звёзд, например 1, 5, 10.");
-                        msg.setReplyMarkup(createAdminMenuKeyboard());
-                        messages.add(msg);
-                        return AdminTextResult.handled(messages);
-                    }
-
-                    if (code == null || code.isBlank()) {
-                        SendMessage msg = new SendMessage();
-                        msg.setChatId(chatId.toString());
-                        msg.setText("❌ Внутренняя ошибка: код услуги не найден.");
-                        msg.setReplyMarkup(createAdminMenuKeyboard());
-                        messages.add(msg);
-                        return AdminTextResult.handled(messages);
-                    }
-
-                    String title = switch (code) {
-                        case PaidServiceService.BUSINESS_ASK_EXPERT_CODE -> "Вопрос бизнесмену";
-                        default -> code;
-                    };
-
-                    String desc = "Платная услуга \"" + title + "\"";
-
-                    paidServiceService.setPriceInStars(
-                        code,
-                        title,
-                        desc,
-                        "XTR",
-                        stars
-                    );
-
-                    SendMessage msg = new SendMessage();
-                    msg.setChatId(chatId.toString());
-                    msg.setText("✅ Цена для услуги \"" + title + "\" установлена: " + stars + " ⭐.");
-                    msg.setReplyMarkup(createAdminMenuKeyboard());
-                    messages.add(msg);
-                }
-            }
             return AdminTextResult.handled(messages);
         }
 
@@ -785,53 +482,6 @@ public class AdminMenuService {
         }
 
         message.setReplyMarkup(createAdminMenuKeyboard());
-        return message;
-    }
-
-    private SendMessage buildPaidServicesListMessage(Long chatId) {
-        List<com.example.m1nd.model.PaidService> services = paidServiceService.findActiveServices();
-
-        SendMessage message = new SendMessage();
-        message.setChatId(chatId.toString());
-
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
-        if (services.isEmpty()) {
-            // Если услуг пока нет в БД, показываем дефолтную услугу «Вопрос бизнесмену»
-            InlineKeyboardButton b = new InlineKeyboardButton();
-            b.setText("Вопрос бизнесмену");
-            b.setCallbackData("paid_service_set_price:" + PaidServiceService.BUSINESS_ASK_EXPERT_CODE);
-            List<InlineKeyboardButton> row = new ArrayList<>();
-            row.add(b);
-            keyboard.add(row);
-
-            message.setText("💰 Выберите платную услугу для изменения цены:");
-        } else {
-            message.setText("💰 Платные услуги. Выберите услугу для изменения цены:");
-            for (com.example.m1nd.model.PaidService s : services) {
-                InlineKeyboardButton b = new InlineKeyboardButton();
-                String title = s.getTitle() != null ? s.getTitle() : s.getCode();
-                int stars = s.getPriceUnits() != null ? s.getPriceUnits() / 100 : 0;
-                b.setText(title + " — " + stars + " ⭐");
-                b.setCallbackData("paid_service_set_price:" + s.getCode());
-
-                List<InlineKeyboardButton> row = new ArrayList<>();
-                row.add(b);
-                keyboard.add(row);
-            }
-        }
-
-        InlineKeyboardButton backButton = new InlineKeyboardButton();
-        backButton.setText("◀️ Назад");
-        backButton.setCallbackData("admin_menu");
-        List<InlineKeyboardButton> backRow = new ArrayList<>();
-        backRow.add(backButton);
-        keyboard.add(backRow);
-
-        markup.setKeyboard(keyboard);
-        message.setReplyMarkup(markup);
-
         return message;
     }
 
@@ -1125,166 +775,6 @@ public class AdminMenuService {
 
         message.setReplyMarkup(createAdminMenuKeyboard());
         return message;
-    }
-
-    private SendMessage buildDeleteFactTopicsMessage(Long chatId) {
-        List<FactTopic> topics = factTopicService.findAll();
-
-        SendMessage msg = new SendMessage();
-        msg.setChatId(chatId.toString());
-
-        if (topics.isEmpty()) {
-            msg.setText("Тем фактов пока нет.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-        } else {
-            msg.setText("Выберите тему фактов для удаления:");
-            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
-            for (FactTopic topic : topics) {
-                InlineKeyboardButton b = new InlineKeyboardButton();
-                b.setText(topic.getTitle());
-                b.setCallbackData("menu_delete_fact_topic_confirm:" + topic.getId());
-
-                List<InlineKeyboardButton> row = new ArrayList<>();
-                row.add(b);
-                keyboard.add(row);
-            }
-
-            markup.setKeyboard(keyboard);
-            msg.setReplyMarkup(markup);
-        }
-
-        return msg;
-    }
-
-    private SendMessage buildDeleteIdeaTopicsMessage(Long chatId) {
-        List<IdeaTopic> topics = ideaTopicService.findAll();
-
-        SendMessage msg = new SendMessage();
-        msg.setChatId(chatId.toString());
-
-        if (topics.isEmpty()) {
-            msg.setText("Тем для идей пока нет.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-        } else {
-            msg.setText("Выберите тему идей для удаления:");
-            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
-            for (IdeaTopic topic : topics) {
-                InlineKeyboardButton b = new InlineKeyboardButton();
-                b.setText(topic.getTitle());
-                b.setCallbackData("menu_delete_idea_topic_confirm:" + topic.getId());
-
-                List<InlineKeyboardButton> row = new ArrayList<>();
-                row.add(b);
-                keyboard.add(row);
-            }
-
-            markup.setKeyboard(keyboard);
-            msg.setReplyMarkup(markup);
-        }
-
-        return msg;
-    }
-
-    private SendMessage buildDeleteMotivationTopicsMessage(Long chatId) {
-        List<MotivationTopic> topics = motivationTopicService.findAll();
-
-        SendMessage msg = new SendMessage();
-        msg.setChatId(chatId.toString());
-
-        if (topics.isEmpty()) {
-            msg.setText("Тем мотивации пока нет.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-        } else {
-            msg.setText("Выберите тему мотивации для удаления:");
-            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
-            for (MotivationTopic topic : topics) {
-                InlineKeyboardButton b = new InlineKeyboardButton();
-                b.setText(topic.getTitle());
-                b.setCallbackData("menu_delete_motivation_topic_confirm:" + topic.getId());
-
-                List<InlineKeyboardButton> row = new ArrayList<>();
-                row.add(b);
-                keyboard.add(row);
-            }
-
-            markup.setKeyboard(keyboard);
-            msg.setReplyMarkup(markup);
-        }
-
-        return msg;
-    }
-
-    private SendMessage buildDeleteGamesMessage(Long chatId) {
-        List<Game> games = gameService.findAll();
-
-        SendMessage msg = new SendMessage();
-        msg.setChatId(chatId.toString());
-
-        if (games.isEmpty()) {
-            msg.setText("Игр пока нет.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-        } else {
-            msg.setText("Выберите игру для удаления:");
-            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
-            for (Game game : games) {
-                InlineKeyboardButton b = new InlineKeyboardButton();
-                b.setText(game.getTitle());
-                b.setCallbackData("menu_delete_game_confirm:" + game.getId());
-
-                List<InlineKeyboardButton> row = new ArrayList<>();
-                row.add(b);
-                keyboard.add(row);
-            }
-
-            markup.setKeyboard(keyboard);
-            msg.setReplyMarkup(markup);
-        }
-
-        return msg;
-    }
-
-    private SendMessage buildDeleteTasksMessage(Long chatId) {
-        List<Task> tasks = taskService.findAll();
-
-        SendMessage msg = new SendMessage();
-        msg.setChatId(chatId.toString());
-
-        if (tasks.isEmpty()) {
-            msg.setText("Заданий пока нет.");
-            msg.setReplyMarkup(createMenuEditorKeyboard());
-        } else {
-            msg.setText("Выберите задание для удаления:");
-            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-            List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
-            for (Task task : tasks) {
-                String preview = task.getText();
-                if (preview.length() > 40) {
-                    preview = preview.substring(0, 40) + "...";
-                }
-
-                InlineKeyboardButton b = new InlineKeyboardButton();
-                b.setText(task.getId() + ": " + preview);
-                b.setCallbackData("menu_delete_task_confirm:" + task.getId());
-
-                List<InlineKeyboardButton> row = new ArrayList<>();
-                row.add(b);
-                keyboard.add(row);
-            }
-
-            markup.setKeyboard(keyboard);
-            msg.setReplyMarkup(markup);
-        }
-
-        return msg;
     }
 
     public static class AdminMenuResult {

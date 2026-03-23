@@ -30,11 +30,13 @@ public class WorkingApiService {
     private static final String ANSI_ESCAPE_REGEX = "\u001B\\[[;\\d]*m";
     
     private final PromptService promptService;
+    private final AssistantPromptContextService assistantPromptContextService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WebClient client;
 
-    public WorkingApiService(PromptService promptService) {
+    public WorkingApiService(PromptService promptService, AssistantPromptContextService assistantPromptContextService) {
         this.promptService = promptService;
+        this.assistantPromptContextService = assistantPromptContextService;
         this.client = createWebClient();
     }
 
@@ -65,13 +67,13 @@ public class WorkingApiService {
                 .build();
     }
 
-    public Mono<String> getAnswer(String questionText) {
+    public Mono<String> getAnswer(String questionText, Long userId) {
         String logQuestion = questionText.length() > 50 
             ? questionText.substring(0, 50) + "..." 
             : questionText;
         logger.debug("Отправляем запрос к GPT-Chatbot API для вопроса: {}", logQuestion);
 
-        Map<String, Object> requestBody = buildRequestBody(questionText);
+        Map<String, Object> requestBody = buildRequestBody(questionText, userId);
 
         return client.post()
                 .uri(API_ENDPOINT)
@@ -120,11 +122,15 @@ public class WorkingApiService {
                 .onErrorResume(this::handleError);
     }
     
-    private Map<String, Object> buildRequestBody(String questionText) {
+    private Map<String, Object> buildRequestBody(String questionText, Long userId) {
         Map<String, Object> requestBody = new HashMap<>();
         
         // Получаем системный промпт из prompt.txt
         String systemPrompt = promptService.getPrompt();
+        String topicPrompt = assistantPromptContextService.getTopicPrompt(userId);
+        if (topicPrompt != null && !topicPrompt.isBlank()) {
+            systemPrompt = systemPrompt + "\n\n" + topicPrompt;
+        }
         
         // Формируем сообщения: системный промпт + вопрос пользователя
         List<Map<String, String>> messages = List.of(

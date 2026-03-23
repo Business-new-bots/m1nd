@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="013_drop_fact_topics" author="m1nd">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="fact_topics"/>
+        </preConditions>
+        <dropTable tableName="fact_topics"/>
+    </changeSet>
+
+    <changeSet id="013_drop_tasks" author="m1nd">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="tasks"/>
+        </preConditions>
+        <dropTable tableName="tasks"/>
+    </changeSet>
+
+    <changeSet id="013_drop_idea_topics" author="m1nd">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="idea_topics"/>
+        </preConditions>
+        <dropTable tableName="idea_topics"/>
+    </changeSet>
+
+    <changeSet id="013_drop_motivation_topics" author="m1nd">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="motivation_topics"/>
+        </preConditions>
+        <dropTable tableName="motivation_topics"/>
+    </changeSet>
+
+    <changeSet id="013_drop_games" author="m1nd">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="games"/>
+        </preConditions>
+        <dropTable tableName="games"/>
+    </changeSet>
+
+    <changeSet id="013_drop_user_progress" author="m1nd">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="user_progress"/>
+        </preConditions>
+        <dropTable tableName="user_progress"/>
+    </changeSet>
+
+    <changeSet id="013_drop_paid_services" author="m1nd">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="paid_services"/>
+        </preConditions>
+        <dropTable tableName="paid_services"/>
+    </changeSet>
+
+</databaseChangeLog>

@@ -27,6 +27,7 @@ public class LLMService {
     private final WebClient.Builder webClientBuilder;
     private final ConversationService conversationService;
     private final PromptService promptService;
+    private final AssistantPromptContextService assistantPromptContextService;
     private final com.example.m1nd.service.tools.ToolService toolService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
@@ -112,8 +113,9 @@ public class LLMService {
     private Integer yandexgptMaxTokens;
     
     public Mono<String> getAnswer(String question, Long userId) {
-        // Промпт теперь в агенте, но инициализируем историю для совместимости
-        conversationService.initializeHistory(userId, "");
+        // Инициализируем историю для совместимости (тематические инструкции кладём в system)
+        String topicPrompt = assistantPromptContextService.getTopicPrompt(userId);
+        conversationService.initializeHistory(userId, topicPrompt);
         
         // Добавляем вопрос пользователя в историю
         conversationService.addMessage(userId, "user", question);
@@ -593,7 +595,15 @@ public class LLMService {
         requestBody.put("prompt", prompt);
         
         // Input - просто строка (как в Python примере: input="some message")
-        requestBody.put("input", lastUserMessage);
+        String topicPromptForInput = assistantPromptContextService.getTopicPrompt(userId);
+        if (topicPromptForInput != null && !topicPromptForInput.isBlank()) {
+            requestBody.put("input",
+                "Тематические инструкции:\n" + topicPromptForInput +
+                    "\n\nВопрос пользователя:\n" + lastUserMessage
+            );
+        } else {
+            requestBody.put("input", lastUserMessage);
+        }
         
         // Для поддержки контекста используем previous_response_id
         String previousResponseId = conversationService.getLastResponseId(userId);
