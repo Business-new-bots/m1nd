@@ -76,6 +76,17 @@ public class MainMenuService {
     }
     private final Map<Long, GameSession> gameSessions = new ConcurrentHashMap<>();
 
+    /** Сессия разбора бизнес-идеи */
+    private static class IdeaAnalysisSession {
+        private int step;           // 1..4
+        private String niche;       // ниша
+        private String budget;      // бюджет
+        private String audience;    // ЦА
+        private String problem;     // какую проблему/потребность решает
+    }
+
+    private final Map<Long, IdeaAnalysisSession> ideaAnalysisSessions = new ConcurrentHashMap<>();
+
     public ReplyKeyboardMarkup createMainReplyKeyboard() {
         ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
         keyboardMarkup.setResizeKeyboard(true);
@@ -211,6 +222,22 @@ public class MainMenuService {
             message.setChatId(chatId.toString());
             message.setText("💡 Идеи и инсайты\n\nВыбери тему:");
             message.setReplyMarkup(createIdeasTopicsKeyboard());
+            return Mono.just(MainMenuResult.single(message, "✅"));
+        }
+
+        // Разбор своей идеи
+        if ("idea_analyze".equals(data)) {
+            IdeaAnalysisSession session = new IdeaAnalysisSession();
+            session.step = 1;
+            ideaAnalysisSessions.put(userId, session);
+
+            SendMessage message = new SendMessage();
+            message.setChatId(chatId.toString());
+            message.setText(
+                "💡 Разбор твоей идеи\n\n" +
+                "Давай по шагам разберём твою идею, как бизнес-эксперт.\n\n" +
+                "1/4. В какой нише твоя идея? Кратко опиши сферу (например: онлайн-образование, e-commerce, офлайн-сервис и т.п.)."
+            );
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
 
@@ -659,18 +686,17 @@ public class MainMenuService {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
+        // Отдельной строкой — запуск разбора идеи
+        List<InlineKeyboardButton> analyzeRow = new ArrayList<>();
+        analyzeRow.add(button("🧩 Разобрать мою идею", "idea_analyze"));
+        keyboard.add(analyzeRow);
+
         List<IdeaTopic> topics = ideaTopicService.findAll();
-        List<InlineKeyboardButton> currentRow = new ArrayList<>();
 
         for (IdeaTopic topic : topics) {
-            currentRow.add(button(topic.getTitle(), "ideas_" + topic.getCode()));
-            if (currentRow.size() == 2) {
-                keyboard.add(currentRow);
-                currentRow = new ArrayList<>();
-            }
-        }
-        if (!currentRow.isEmpty()) {
-            keyboard.add(currentRow);
+            List<InlineKeyboardButton> row = new ArrayList<>();
+            row.add(button(topic.getTitle(), "ideas_" + topic.getCode()));
+            keyboard.add(row);
         }
 
         List<InlineKeyboardButton> rowBack = new ArrayList<>();
@@ -678,6 +704,108 @@ public class MainMenuService {
         keyboard.add(rowBack);
         markup.setKeyboard(keyboard);
         return markup;
+    }
+
+    /**
+     * Обрабатывает пошаговые ответы пользователя в разделе «Разобрать мою идею».
+     */
+    public IdeaAnalysisResult handleIdeaAnalysisAnswer(Long chatId, Long userId, String messageText) {
+        IdeaAnalysisSession session = ideaAnalysisSessions.get(userId);
+        if (session == null || session.step <= 0) {
+            return IdeaAnalysisResult.notHandled();
+        }
+
+        String answer = messageText == null ? "" : messageText.trim();
+        List<SendMessage> messages = new ArrayList<>();
+
+        switch (session.step) {
+            case 1 -> {
+                session.niche = answer;
+                session.step = 2;
+
+                SendMessage q2 = new SendMessage();
+                q2.setChatId(chatId.toString());
+                q2.setText(
+                    "2/4. Какой у тебя бюджет на запуск / тестирование идеи?\n\n" +
+                    "Можно примерно: до 50 тыс, 50–200 тыс, 200–500 тыс, 500+ тыс, или опиши своими словами."
+                );
+                messages.add(q2);
+                return IdeaAnalysisResult.handled(messages);
+            }
+            case 2 -> {
+                session.budget = answer;
+                session.step = 3;
+
+                SendMessage q3 = new SendMessage();
+                q3.setChatId(chatId.toString());
+                q3.setText(
+                    "3/4. Опиши целевую аудиторию.\n\n" +
+                    "Кто эти люди: возраст, профессия/роль, где их можно найти (онлайн/офлайн)?"
+                );
+                messages.add(q3);
+                return IdeaAnalysisResult.handled(messages);
+            }
+            case 3 -> {
+                session.audience = answer;
+                session.step = 4;
+
+                SendMessage q4 = new SendMessage();
+                q4.setChatId(chatId.toString());
+                q4.setText(
+                    "4/4. Какую главную проблему или потребность решает твоя идея для этой аудитории?\n\n" +
+                    "Опиши максимально конкретно."
+                );
+                messages.add(q4);
+                return IdeaAnalysisResult.handled(messages);
+            }
+            case 4 -> {
+                session.problem = answer;
+                session.step = 0; // завершаем
+
+                // Формируем промпт для ИИ-эксперта
+                StringBuilder prompt = new StringBuilder();
+                prompt.append("Ты выступаешь как опытный бизнес-эксперт и ментор. ")
+                    .append("Проанализируй идею пользователя по данным ниже и дай честную, но поддерживающую обратную связь.\n\n")
+                    .append("Ниша: ").append(nullToDash(session.niche)).append("\n")
+                    .append("Бюджет: ").append(nullToDash(session.budget)).append("\n")
+                    .append("Целевая аудитория: ").append(nullToDash(session.audience)).append("\n")
+                    .append("Проблема/потребность: ").append(nullToDash(session.problem)).append("\n\n")
+                    .append("Структура ответа:\n")
+                    .append("1) Краткое резюме: насколько идея жизнеспособна на первый взгляд.\n")
+                    .append("2) Сильные стороны идеи.\n")
+                    .append("3) Риски и слабые места (что может пойти не так).\n")
+                    .append("4) Рекомендации: какие 3–5 следующих шага стоит сделать, чтобы проверить идею на практике.\n")
+                    .append("Пиши по делу, простым языком, без воды.");
+
+                String aiAnswer;
+                try {
+                    aiAnswer = llmService.getAnswer(prompt.toString(), userId).block();
+                } catch (Exception e) {
+                    log.error("Ошибка при запросе разбора идеи в LLM", e);
+                    aiAnswer = null;
+                }
+
+                if (aiAnswer == null || aiAnswer.isBlank()) {
+                    aiAnswer = "Не удалось сейчас получить развёрнутый разбор идеи. Попробуй, пожалуйста, ещё раз чуть позже.";
+                }
+
+                ideaAnalysisSessions.remove(userId);
+
+                SendMessage result = new SendMessage();
+                result.setChatId(chatId.toString());
+                result.setText("💡 Разбор твоей идеи:\n\n" + aiAnswer);
+                messages.add(result);
+                return IdeaAnalysisResult.handled(messages);
+            }
+            default -> {
+                ideaAnalysisSessions.remove(userId);
+                return IdeaAnalysisResult.notHandled();
+            }
+        }
+    }
+
+    private String nullToDash(String value) {
+        return value == null || value.isBlank() ? "-" : value;
     }
 
     private Mono<SendMessage> buildIdeaMessage(Long chatId, Long userId, String category) {
@@ -1442,6 +1570,32 @@ public class MainMenuService {
 
         public static PuzzleAnswerResult notHandled() {
             return new PuzzleAnswerResult(false, List.of());
+        }
+
+        public boolean isHandled() {
+            return handled;
+        }
+
+        public List<SendMessage> getMessages() {
+            return messages;
+        }
+    }
+
+    public static class IdeaAnalysisResult {
+        private final boolean handled;
+        private final List<SendMessage> messages;
+
+        private IdeaAnalysisResult(boolean handled, List<SendMessage> messages) {
+            this.handled = handled;
+            this.messages = messages;
+        }
+
+        public static IdeaAnalysisResult handled(List<SendMessage> messages) {
+            return new IdeaAnalysisResult(true, messages);
+        }
+
+        public static IdeaAnalysisResult notHandled() {
+            return new IdeaAnalysisResult(false, List.of());
         }
 
         public boolean isHandled() {

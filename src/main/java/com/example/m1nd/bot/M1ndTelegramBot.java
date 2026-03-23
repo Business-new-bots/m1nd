@@ -74,6 +74,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     @Value("${app.summary.delay-minutes:5}")
     private int summaryDelayMinutes;
 
+    @Value("${telegram.payments.provider-token:}")
+    private String paymentsProviderToken;
+
     private static final String EXPERT_QUESTION_PAYLOAD = "expert_question_1";
     private static final String STARS_CURRENCY = "XTR";
     private static final int EXPERT_QUESTION_PRICE = 100; // 1 Star (дефолт)
@@ -96,12 +99,12 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     public String getBotUsername() {
         return botConfig.getUsername();
     }
-    
+
     @Override
     public String getBotToken() {
         return botConfig.getToken();
     }
-    
+
     @PostConstruct
     public void init() {
         String tokenPreview = botConfig.getToken() != null && botConfig.getToken().length() > 4
@@ -237,7 +240,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 }
             } else {
                 Long chatId = update.getMessage().getChatId();
-                    MainMenuService.PuzzleAnswerResult puzzleResult =
+                MainMenuService.PuzzleAnswerResult puzzleResult =
                     mainMenuService.handlePuzzleAnswer(chatId, userId, messageText);
 
                 if (puzzleResult.isHandled()) {
@@ -259,13 +262,25 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                                 logger.error("Ошибка при отправке ответа в игре", e);
                             }
                         }
-                        } else if (waitingForFeedback.getOrDefault(userId, "").equals("comment")) {
-                        // Обрабатываем комментарий к опросу
-                        handleFeedbackComment(update, messageText);
                     } else {
-                        // Обработка обычных сообщений (вопросов)
-                        logger.info("Обработка вопроса: {}", messageText);
-                        handleQuestion(update, messageText);
+                        MainMenuService.IdeaAnalysisResult ideaResult =
+                            mainMenuService.handleIdeaAnalysisAnswer(chatId, userId, messageText);
+                        if (ideaResult.isHandled()) {
+                            for (SendMessage msg : ideaResult.getMessages()) {
+                                try {
+                                    execute(msg);
+                                } catch (TelegramApiException e) {
+                                    logger.error("Ошибка при отправке разбора идеи", e);
+                                }
+                            }
+                        } else if (waitingForFeedback.getOrDefault(userId, "").equals("comment")) {
+                            // Обрабатываем комментарий к опросу
+                            handleFeedbackComment(update, messageText);
+                        } else {
+                            // Обработка обычных сообщений (вопросов)
+                            logger.info("Обработка вопроса: {}", messageText);
+                            handleQuestion(update, messageText);
+                        }
                     }
                 }
             }
@@ -786,6 +801,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         invoice.setDescription("Оплата одного вопроса реальному бизнесмену (" + stars + " ⭐).");
         invoice.setPayload(EXPERT_QUESTION_PAYLOAD);
         invoice.setCurrency(STARS_CURRENCY);
+        if (paymentsProviderToken != null && !paymentsProviderToken.isBlank()) {
+            invoice.setProviderToken(paymentsProviderToken);
+        }
 
         List<LabeledPrice> prices = new ArrayList<>();
         prices.add(new LabeledPrice("Вопрос бизнесмену", priceUnits));
