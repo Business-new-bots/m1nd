@@ -1,6 +1,7 @@
 package com.example.m1nd.service;
 
 import com.example.m1nd.model.Assistant;
+import com.example.m1nd.model.AssistantType;
 import com.example.m1nd.model.User;
 import com.example.m1nd.repository.AssistantRepository;
 import com.example.m1nd.repository.UserRepository;
@@ -34,6 +35,13 @@ public class AssistantService {
         return assistantRepository.findByActiveTrue();
     }
 
+    public List<Assistant> getActiveAssistantsByType(AssistantType type) {
+        if (type == null) {
+            return List.of();
+        }
+        return assistantRepository.findByActiveTrueAndType(type);
+    }
+
     public Optional<Assistant> findRandomActiveAssistant() {
         List<Assistant> active = getActiveAssistants();
         if (active.isEmpty()) {
@@ -43,9 +51,21 @@ public class AssistantService {
         return Optional.of(active.get(index));
     }
 
+    public Optional<Assistant> findRandomActiveAssistantByType(AssistantType type) {
+        List<Assistant> active = getActiveAssistantsByType(type);
+        if (active.isEmpty()) {
+            return Optional.empty();
+        }
+        int index = random.nextInt(active.size());
+        return Optional.of(active.get(index));
+    }
+
     @Transactional
-    public Optional<Assistant> addAssistantByUsername(String username) {
+    public Optional<Assistant> addAssistantByUsername(String username, AssistantType type) {
         if (username == null || username.isBlank()) {
+            return Optional.empty();
+        }
+        if (type == null) {
             return Optional.empty();
         }
 
@@ -67,13 +87,17 @@ public class AssistantService {
 
         Optional<Assistant> existing = assistantRepository.findByTelegramUserIdAndActiveTrue(user.getUserId());
         if (existing.isPresent()) {
-            return existing;
+            Assistant assistant = existing.get();
+            assistant.setType(type);
+            assistant.setUpdatedAt(LocalDateTime.now());
+            return Optional.of(assistantRepository.save(assistant));
         }
 
         Assistant assistant = new Assistant();
         assistant.setTelegramUserId(user.getUserId());
         assistant.setUsername(user.getUsername());
         assistant.setFirstName(user.getFirstName());
+        assistant.setType(type);
         assistant.setActive(true);
         assistant.setCreatedAt(LocalDateTime.now());
         assistant.setUpdatedAt(LocalDateTime.now());

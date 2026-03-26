@@ -16,5 +16,6 @@
     <include file="classpath:db/changelog/010_create_user_progress.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/011_add_user_progress_counters.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/013_drop_legacy_menu_tables.xml" relativeToChangelogFile="false"/>
+    <include file="classpath:db/changelog/014_add_assistant_type.xml" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

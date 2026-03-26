@@ -1,5 +1,6 @@
 package com.example.m1nd.bot;
 
+import com.example.m1nd.model.AssistantType;
 import com.example.m1nd.service.AdminService;
 import com.example.m1nd.service.AssistantService;
 import com.example.m1nd.service.FeedbackService;
@@ -36,6 +37,7 @@ public class AdminMenuService {
     private final Map<Long, Boolean> waitingForAdminUsername = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> waitingForRemoveAdminUsername = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> waitingForAssistantUsername = new ConcurrentHashMap<>();
+    private final Map<Long, String> pendingAssistantUsername = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> waitingForRemoveAssistantUsername = new ConcurrentHashMap<>();
     public InlineKeyboardMarkup createAdminKeyboard() {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
@@ -232,6 +234,7 @@ public class AdminMenuService {
                 || "add_business_assistant_prompt".equals(data)
                 || "list_business_assistants".equals(data)
                 || "remove_business_assistant_prompt".equals(data)
+                || data.startsWith("assistant_type:")
         );
     }
 
@@ -312,6 +315,7 @@ public class AdminMenuService {
             callbackAnswer = "✅ Введите username";
         } else if ("add_business_assistant_prompt".equals(data)) {
             waitingForAssistantUsername.put(userId, true);
+            pendingAssistantUsername.remove(userId);
 
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
@@ -326,6 +330,7 @@ public class AdminMenuService {
             callbackAnswer = "✅ Список ассистентов отправлен";
         } else if ("remove_business_assistant_prompt".equals(data)) {
             waitingForRemoveAssistantUsername.put(userId, true);
+            pendingAssistantUsername.remove(userId);
 
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
@@ -334,6 +339,31 @@ public class AdminMenuService {
             message.setReplyMarkup(createAdminMenuKeyboard());
             messages.add(message);
             callbackAnswer = "✅ Введите username ассистента";
+        } else if (data != null && data.startsWith("assistant_type:")) {
+            String typeCode = data.substring("assistant_type:".length());
+            String targetUsername = pendingAssistantUsername.remove(userId);
+
+            if (targetUsername == null || targetUsername.isBlank()) {
+                SendMessage message = new SendMessage();
+                message.setChatId(chatId.toString());
+                message.setText("❌ Сначала отправьте username ассистента.");
+                message.setReplyMarkup(createAdminMenuKeyboard());
+                messages.add(message);
+                callbackAnswer = "❌ Нет username";
+            } else {
+                AssistantType type = parseAssistantType(typeCode);
+                if (type == null) {
+                    SendMessage message = new SendMessage();
+                    message.setChatId(chatId.toString());
+                    message.setText("❌ Некорректный тип ассистента.");
+                    message.setReplyMarkup(createAdminMenuKeyboard());
+                    messages.add(message);
+                    callbackAnswer = "❌ Некорректный тип";
+                } else {
+                    messages.add(buildAddAssistantMessage(chatId, targetUsername, type));
+                    callbackAnswer = "✅ Ассистент добавлен";
+                }
+            }
         } else if (data != null && data.startsWith("add_admin:")) {
             String targetUsername = data.substring("add_admin:".length());
             messages.add(buildAddAdminCallbackMessage(chatId, username, targetUsername));
@@ -373,7 +403,9 @@ public class AdminMenuService {
         }
 
         if (waitingForAssistantUsername.getOrDefault(userId, false)) {
-            messages.add(buildAddAssistantUsernameMessage(chatId, messageText));
+            String targetUsername = messageText.trim();
+            pendingAssistantUsername.put(userId, targetUsername);
+            messages.add(buildAssistantTypeSelectionMessage(chatId, targetUsername));
             waitingForAssistantUsername.remove(userId);
             return AdminTextResult.handled(messages);
         }
@@ -475,7 +507,7 @@ public class AdminMenuService {
                 } else {
                     sb.append("ID: ").append(a.getTelegramUserId());
                 }
-                sb.append("\n");
+                sb.append("\n   Тип: ").append(typeTitle(a.getType())).append("\n");
             }
 
             message.setText(sb.toString());
@@ -712,22 +744,65 @@ public class AdminMenuService {
         return message;
     }
 
-    private SendMessage buildAddAssistantUsernameMessage(Long chatId, String messageText) {
-        String targetUsername = messageText.trim();
-
+    private SendMessage buildAddAssistantMessage(Long chatId, String targetUsername, AssistantType type) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
 
-        var assistantOpt = assistantService.addAssistantByUsername(targetUsername);
+        var assistantOpt = assistantService.addAssistantByUsername(targetUsername, type);
 
         if (assistantOpt.isPresent()) {
-            message.setText("✅ Ассистент бизнеса @" + targetUsername.replace("@", "") + " успешно добавлен!");
+            message.setText("✅ Ассистент бизнеса @" + targetUsername.replace("@", "") +
+                " успешно добавлен.\nТип: " + typeTitle(type));
         } else {
             message.setText("❌ Не удалось добавить ассистента. Убедитесь, что пользователь уже писал боту и username указан верно.");
         }
 
         message.setReplyMarkup(createAdminMenuKeyboard());
         return message;
+    }
+
+    private SendMessage buildAssistantTypeSelectionMessage(Long chatId, String targetUsername) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText("Выберите тип ассистента для @" + targetUsername.replace("@", "") + ":");
+        message.setReplyMarkup(createAssistantTypeKeyboard());
+        return message;
+    }
+
+    private InlineKeyboardMarkup createAssistantTypeKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+
+        InlineKeyboardButton messageType = new InlineKeyboardButton();
+        messageType.setText("Сообщение");
+        messageType.setCallbackData("assistant_type:MESSAGE");
+
+        InlineKeyboardButton meetingType = new InlineKeyboardButton();
+        meetingType.setText("Встреча");
+        meetingType.setCallbackData("assistant_type:MEETING");
+
+        keyboard.add(List.of(messageType));
+        keyboard.add(List.of(meetingType));
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
+
+    private AssistantType parseAssistantType(String code) {
+        try {
+            return AssistantType.valueOf(code);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String typeTitle(AssistantType type) {
+        if (type == null) {
+            return "Не указан";
+        }
+        return switch (type) {
+            case MESSAGE -> "Сообщение";
+            case MEETING -> "Встреча";
+        };
     }
 
     private SendMessage buildRemoveAdminUsernameMessage(Long chatId, String currentUsername, String messageText) {

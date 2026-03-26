@@ -1,6 +1,7 @@
 package com.example.m1nd.bot;
 
 import com.example.m1nd.config.TelegramBotConfig;
+import com.example.m1nd.model.AssistantType;
 import com.example.m1nd.service.AdminService;
 import com.example.m1nd.service.AssistantPromptContextService;
 import com.example.m1nd.service.AssistantService;
@@ -781,11 +782,14 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         }
 
         if (assistantUserId == null) {
-            var assistantOpt = assistantService.findRandomActiveAssistant();
+            AssistantType requiredType = isMeeting ? AssistantType.MEETING : AssistantType.MESSAGE;
+            var assistantOpt = assistantService.findRandomActiveAssistantByType(requiredType);
             if (assistantOpt.isEmpty()) {
                 SendMessage msg = new SendMessage();
                 msg.setChatId(chatId.toString());
-                msg.setText("❌ Сейчас нет доступных специалистов. Попробуйте позже.");
+                msg.setText(isMeeting
+                    ? "❌ Сейчас нет доступных специалистов для встреч. Попробуйте позже."
+                    : "❌ Сейчас нет доступных специалистов для сообщений. Попробуйте позже.");
                 try {
                     execute(msg);
                 } catch (TelegramApiException e) {

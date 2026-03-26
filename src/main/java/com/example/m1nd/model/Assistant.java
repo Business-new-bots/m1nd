@@ -27,6 +27,10 @@ public class Assistant {
     @Column(name = "first_name")
     private String firstName;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "type", nullable = false)
+    private AssistantType type = AssistantType.MESSAGE;
+
     @Column(name = "active")
     private boolean active = true;
 
