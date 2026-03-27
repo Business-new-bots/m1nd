@@ -17,7 +17,6 @@ import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 
 import java.util.List;
 import java.util.ArrayList;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -143,7 +142,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             handleCallbackQuery(update.getCallbackQuery());
             return;
         }
-        
+
         if (update.hasMessage() && update.getMessage().hasText()) {
             String messageText = update.getMessage().getText().trim();
             logger.info("Получено сообщение: '{}' от пользователя {}", 
@@ -238,7 +237,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             logger.warn("Обновление не содержит текстового сообщения: {}", update);
         }
     }
-    
+
     private void handleStartCommand(Update update) {
         // Регистрируем пользователя (это также отслеживает активность)
         userService.registerUser(update);
@@ -562,6 +561,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         String data = callbackQuery.getData();
         Long userId = callbackQuery.getFrom().getId();
         String username = callbackQuery.getFrom().getUserName();
+        Long chatId = callbackQuery.getMessage().getChatId();
         
         logger.info("Обработка callback: {} от пользователя {}", data, username);
 
@@ -582,6 +582,25 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         if (data != null && data.startsWith("feedback_")) {
             handleFeedbackCallback(callbackQuery, data);
             return;
+        }
+
+        // Для режимов question/meeting сразу отдаем контакт специалиста для прямого общения.
+        if (data != null && data.startsWith("assistant_choice:")) {
+            String[] parts = data.split(":");
+            if (parts.length == 3) {
+                String assistantCode = parts[1];
+                String modeCode = parts[2];
+                if ("question".equals(modeCode) || "meeting".equals(modeCode)) {
+                    assistantPromptContextService.setAssistant(userId, assistantCode);
+                    assistantPromptContextService.setMode(userId, modeCode);
+
+                    sendSpecialistDirectContact(chatId, modeCode, username);
+                    // Режим "human expert" завершаем сразу после передачи контакта.
+                    assistantPromptContextService.clearMode(userId);
+                    sendCallbackAnswer(callbackQuery.getId(), "✅ Контакт специалиста отправлен");
+                    return;
+                }
+            }
         }
 
         // Обработка главного меню и фактов (доступно всем пользователям)
@@ -762,100 +781,79 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         Long userId = update.getMessage().getFrom().getId();
         Long chatId = update.getMessage().getChatId();
 
+        // По новому сценарию для question/meeting даем прямой контакт, без проксирования через бота.
+        sendSpecialistDirectContact(chatId, modeCode, update.getMessage().getFrom().getUserName());
+        assistantPromptContextService.clearMode(userId);
+    }
+
+    private void sendSpecialistDirectContact(Long chatId, String modeCode, String userUsername) {
         boolean isMeeting = "meeting".equals(modeCode);
-        boolean isFollowUp = false;
+        AssistantType requiredType = isMeeting ? AssistantType.MEETING : AssistantType.MESSAGE;
+        var assistantOpt = assistantService.findRandomActiveAssistantByType(requiredType);
 
-        Long assistantUserId = null;
-        String ticketId = null;
-
-        // Для meeting стараемся продолжать диалог с тем же экспертом (один ticket на пользователя).
-        if (isMeeting) {
-            String existingTicket = activeMeetingTicketByUser.get(userId);
-            if (existingTicket != null) {
-                HumanExpertRequest existing = humanExpertRequests.get(existingTicket);
-                if (existing != null && "meeting".equals(existing.mode)) {
-                    ticketId = existingTicket;
-                    assistantUserId = existing.assistantUserId;
-                    isFollowUp = true;
-                }
+        if (assistantOpt.isEmpty()) {
+            SendMessage msg = new SendMessage();
+            msg.setChatId(chatId.toString());
+            msg.setText(isMeeting
+                ? "Сейчас нет доступных специалистов для встречи. Попробуйте немного позже."
+                : "Сейчас нет доступных специалистов для сообщений. Попробуйте немного позже.");
+            try {
+                execute(msg);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке сообщения об отсутствии специалистов", e);
             }
+            return;
         }
 
-        if (assistantUserId == null) {
-            AssistantType requiredType = isMeeting ? AssistantType.MEETING : AssistantType.MESSAGE;
-            var assistantOpt = assistantService.findRandomActiveAssistantByType(requiredType);
-            if (assistantOpt.isEmpty()) {
-                SendMessage msg = new SendMessage();
-                msg.setChatId(chatId.toString());
-                msg.setText(isMeeting
-                    ? "❌ Сейчас нет доступных специалистов для встреч. Попробуйте позже."
-                    : "❌ Сейчас нет доступных специалистов для сообщений. Попробуйте позже.");
-                try {
-                    execute(msg);
-                } catch (TelegramApiException e) {
-                    logger.error("Ошибка при отправке сообщения об отсутствии ассистентов", e);
-                }
-                return;
-            }
+        var assistant = assistantOpt.get();
+        String assistantUsername = assistant.getUsername();
+        String cleanAssistantUsername = assistantUsername == null ? "" :
+            (assistantUsername.startsWith("@") ? assistantUsername.substring(1) : assistantUsername);
 
-            var assistant = assistantOpt.get();
-            assistantUserId = assistant.getTelegramUserId();
-            if (assistantUserId == null) {
-                SendMessage msg = new SendMessage();
-                msg.setChatId(chatId.toString());
-                msg.setText("❌ У специалиста не настроен telegram_user_id.");
-                try {
-                    execute(msg);
-                } catch (TelegramApiException e) {
-                    logger.error("Ошибка при отправке сообщения об ошибке telegram_user_id", e);
-                }
-                return;
-            }
-        }
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
 
-        if (ticketId == null) {
-            ticketId = UUID.randomUUID().toString();
-            humanExpertRequests.put(ticketId, new HumanExpertRequest(userId, assistantUserId, modeCode));
-            if (isMeeting) {
-                activeMeetingTicketByUser.put(userId, ticketId);
-            }
-        }
+        String contactHint = (userUsername != null && !userUsername.isBlank())
+            ? "Ваш контакт для согласования: @" + (userUsername.startsWith("@") ? userUsername.substring(1) : userUsername)
+            : "Для согласования обязательно представьтесь специалисту в первом сообщении.";
 
-        // Подтверждение пользователю
-        SendMessage confirm = new SendMessage();
-        confirm.setChatId(chatId.toString());
-        if (isMeeting) {
-            confirm.setText(isFollowUp
-                ? "✅ Сообщение отправлено специалисту. Ожидайте ответа."
-                : "💼 Запрос на встречу отправлен специалисту. Ожидайте предложения по времени.");
+        if (cleanAssistantUsername.isBlank()) {
+            message.setText(
+                "Специалист выбран, но у него пока не указан публичный username.\n\n" +
+                "Пожалуйста, обратитесь в поддержку бота, чтобы получить контакт."
+            );
+        } else if (isMeeting) {
+            message.setText(
+                "Специалист для встречи: @" + cleanAssistantUsername + "\n\n" +
+                "Напишите ему напрямую для согласования времени и деталей.\n" +
+                contactHint
+            );
+
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            InlineKeyboardButton button = new InlineKeyboardButton();
+            button.setText("Написать специалисту");
+            button.setUrl("https://t.me/" + cleanAssistantUsername);
+            markup.setKeyboard(List.of(List.of(button)));
+            message.setReplyMarkup(markup);
         } else {
-            confirm.setText("💼 Ваш вопрос отправлен специалисту. Ожидайте ответа в этом чате.");
+            message.setText(
+                "Специалист для вопроса: @" + cleanAssistantUsername + "\n\n" +
+                "Напишите ему напрямую, чтобы получить ответ.\n" +
+                contactHint
+            );
+
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            InlineKeyboardButton button = new InlineKeyboardButton();
+            button.setText("Написать специалисту");
+            button.setUrl("https://t.me/" + cleanAssistantUsername);
+            markup.setKeyboard(List.of(List.of(button)));
+            message.setReplyMarkup(markup);
         }
 
         try {
-            execute(confirm);
+            execute(message);
         } catch (TelegramApiException e) {
-            logger.error("Ошибка при отправке подтверждения пользователю", e);
-        }
-
-        // Сообщение эксперту
-        SendMessage toAssistant = new SendMessage();
-        toAssistant.setChatId(assistantUserId.toString());
-
-        String modeText = isMeeting ? "встреча" : "вопрос";
-        String prefix = isFollowUp ? "💬 Доп. сообщение для согласования:" : "💼 Новый запрос (" + modeText + "):";
-
-        toAssistant.setText(
-            prefix + "\n\n" +
-                messageText + "\n\n" +
-                "Ответьте в этом чате командой:\n" +
-                "/answer_" + ticketId + " <текст ответа>"
-        );
-
-        try {
-            execute(toAssistant);
-        } catch (TelegramApiException e) {
-            logger.error("Ошибка при отправке вопроса специалисту", e);
+            logger.error("Ошибка при отправке контакта специалиста пользователю", e);
         }
     }
 
