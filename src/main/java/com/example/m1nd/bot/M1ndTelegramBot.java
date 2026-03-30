@@ -356,6 +356,13 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             SendMessage msg = new SendMessage();
             msg.setChatId(chatId.toString());
             msg.setText("Вопрос сохранен. Нажмите кнопку \"Написать специалисту\", чтобы отправить его специалисту.");
+
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            InlineKeyboardButton button = new InlineKeyboardButton();
+            button.setText("Написать специалисту");
+            button.setCallbackData("human_question_send");
+            markup.setKeyboard(List.of(List.of(button)));
+            msg.setReplyMarkup(markup);
             try {
                 execute(msg);
             } catch (TelegramApiException e) {
@@ -1074,12 +1081,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             } else {
                 // Для question нам публичный username не нужен: ответ будет идти через бота по ticket.
                 message.setText("Задай вопрос Дмитрию, чтобы получить ответ.");
-                InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-                InlineKeyboardButton button = new InlineKeyboardButton();
-                button.setText("Написать специалисту");
-                button.setCallbackData("human_question_send");
-                markup.setKeyboard(List.of(List.of(button)));
-                message.setReplyMarkup(markup);
             }
         } else if (isMeeting) {
             message.setText(
@@ -1096,13 +1097,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             message.setText(
                 "Задай вопрос Дмитрию, чтобы получить ответ."
             );
-
-            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-            InlineKeyboardButton button = new InlineKeyboardButton();
-            button.setText("Написать специалисту");
-            button.setCallbackData("human_question_send");
-            markup.setKeyboard(List.of(List.of(button)));
-            message.setReplyMarkup(markup);
         }
 
         try {
