@@ -94,18 +94,12 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private final java.util.Map<Long, String> activeMeetingTicketByUser =
         new java.util.concurrent.ConcurrentHashMap<>();
 
-    // Human expert: question flow
-    // Храним черновик вопроса пользователя, пока он не нажал "Написать специалисту"
-    private final java.util.Map<Long, String> pendingHumanQuestionDraftByUserId =
-        new java.util.concurrent.ConcurrentHashMap<>();
     // Human expert: активная "вкладка" (ticket) у специалиста
     private final java.util.Map<Long, String> activeTicketByAssistantUserId =
         new java.util.concurrent.ConcurrentHashMap<>();
-    // Human expert: черновик ответа специалиста, введенный текстом
-    private final java.util.Map<Long, String> draftAnswerByAssistantUserId =
-        new java.util.concurrent.ConcurrentHashMap<>();
-    // Human expert: активный ticket у пользователя (чтобы в ожидании не отправлять новый вопрос в режиме question)
-    private final java.util.Map<Long, String> activeQuestionTicketByUserId =
+
+    // Human expert: текст ответа, который специалист ввел перед нажатием "отправить"
+    private final java.util.Map<Long, String> pendingAnswerByAssistantUserId =
         new java.util.concurrent.ConcurrentHashMap<>();
     
     @Override
@@ -172,22 +166,22 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 return;
             }
 
-            // Human expert: если специалист сейчас отвечает на ticket — любое текстовое сообщение
-            // считаем черновиком ответа.
+            // Human expert: если специалист сейчас отвечает на ticket — запоминаем ответ
+            // и показываем кнопку "отправить".
             if (assistantService.isAssistant(userId)) {
                 String activeTicketId = activeTicketByAssistantUserId.get(userId);
                 if (activeTicketId != null) {
-                    draftAnswerByAssistantUserId.put(userId, messageText);
+                    pendingAnswerByAssistantUserId.put(userId, messageText);
 
                     InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
                     InlineKeyboardButton button = new InlineKeyboardButton();
-                    button.setText("отправить ответ");
+                    button.setText("отправить");
                     button.setCallbackData("expert_answer_send:" + activeTicketId);
                     markup.setKeyboard(List.of(List.of(button)));
 
                     SendMessage msg = new SendMessage();
                     msg.setChatId(update.getMessage().getChatId().toString());
-                    msg.setText("Черновик ответа сохранен. Нажмите кнопку, чтобы отправить.");
+                    msg.setText("Ответ введен. Нажмите кнопку, чтобы отправить.");
                     msg.setReplyMarkup(markup);
                     try {
                         execute(msg);
@@ -337,37 +331,69 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         // Отменяем предыдущую запланированную сводку, если она есть
         cancelScheduledSummary(userId);
 
-        // Human expert: режим question — сохраняем черновик и отправляем только по кнопке
+        // Human expert: режим question — создаем ticket сразу при сообщении пользователя
         if ("question".equals(modeCode)) {
-            if (activeQuestionTicketByUserId.containsKey(userId)) {
+            SendMessage processingToUser = new SendMessage();
+            processingToUser.setChatId(chatId.toString());
+            processingToUser.setText("Отправляю вопрос специалисту....");
+            try {
+                execute(processingToUser);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке пользователю статуса отправки запроса", e);
+            }
+
+            var assistantOpt = assistantService.findRandomActiveAssistantByType(AssistantType.MESSAGE);
+            if (assistantOpt.isEmpty()) {
                 SendMessage msg = new SendMessage();
                 msg.setChatId(chatId.toString());
-                msg.setText("Вы уже отправили вопрос специалисту. Ожидайте ответа в этом чате.");
+                msg.setText("Сейчас нет доступных специалистов для сообщений. Попробуйте немного позже.");
                 try {
                     execute(msg);
                 } catch (TelegramApiException e) {
-                    logger.error("Ошибка при отправке сообщения о ожидании ответа", e);
+                    logger.error("Ошибка при отправке сообщения об отсутствии специалистов", e);
                 }
+                assistantPromptContextService.clear(userId);
                 return;
             }
 
-            pendingHumanQuestionDraftByUserId.put(userId, messageText);
+            var assistant = assistantOpt.get();
+            Long assistantTelegramUserId = assistant.getTelegramUserId();
 
-            SendMessage msg = new SendMessage();
-            msg.setChatId(chatId.toString());
-            msg.setText("Вопрос сохранен. Нажмите кнопку \"Написать специалисту\", чтобы отправить его специалисту.");
+            String ticketId = java.util.UUID.randomUUID().toString();
+            humanExpertRequests.put(ticketId, new HumanExpertRequest(userId, assistantTelegramUserId, "question"));
+
+            // Сообщаем пользователю, что запрос создан
+            SendMessage toUser = new SendMessage();
+            toUser.setChatId(chatId.toString());
+            toUser.setText("Ваш вопрос отправлен специалисту. Ожидайте ответа в этом чате");
+            try {
+                execute(toUser);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке пользователю подтверждения отправки", e);
+            }
+
+            // Сообщаем специалисту в чате с ботом
+            String userUsername = update.getMessage().getFrom().getUserName();
+            String who = userUsername != null ? "@" + userUsername : "пользователь с id=" + userId;
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             InlineKeyboardButton button = new InlineKeyboardButton();
-            button.setText("Написать специалисту");
-            button.setCallbackData("human_question_send");
+            button.setText("Ответить на вопрос пользователю");
+            button.setCallbackData("expert_answer_start:" + ticketId);
             markup.setKeyboard(List.of(List.of(button)));
-            msg.setReplyMarkup(markup);
+
+            SendMessage toAssistant = new SendMessage();
+            toAssistant.setChatId(assistantTelegramUserId.toString());
+            toAssistant.setText("💼 Новый запрос (вопрос):\n\n" + messageText + "\n\n" + "Пользователь: " + who);
+            toAssistant.setReplyMarkup(markup);
             try {
-                execute(msg);
+                execute(toAssistant);
             } catch (TelegramApiException e) {
-                logger.error("Ошибка при отправке сообщения о сохранении вопроса", e);
+                logger.error("Ошибка при отправке запроса специалисту", e);
             }
+
+            // Сбрасываем режим у пользователя, чтобы не создавать второй ticket
+            assistantPromptContextService.clear(userId);
             return;
         }
 
@@ -666,83 +692,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             return;
         }
 
-        // Human expert: отправляем вопрос специалисту (ticket создается здесь, по кнопке пользователя)
-        if ("human_question_send".equals(data)) {
-            // ticket пока не создан — нужен черновик вопроса из pendingHumanQuestionDraftByUserId
-            String questionText = pendingHumanQuestionDraftByUserId.get(userId);
-            if (questionText == null || questionText.isBlank()) {
-                sendCallbackAnswer(callbackQuery.getId(), "Сначала напишите текст вопроса.");
-                return;
-            }
-
-            var assistantOpt = assistantService.findRandomActiveAssistantByType(AssistantType.MESSAGE);
-            if (assistantOpt.isEmpty()) {
-                sendCallbackAnswer(callbackQuery.getId(), "Сейчас нет доступных специалистов. Попробуйте позже.");
-                SendMessage msg = new SendMessage();
-                msg.setChatId(callbackQuery.getMessage().getChatId().toString());
-                msg.setText("Сейчас нет доступных специалистов для сообщений. Попробуйте немного позже.");
-                try {
-                    execute(msg);
-                } catch (TelegramApiException e) {
-                    logger.error("Ошибка при отправке сообщения об отсутствии специалистов", e);
-                }
-                return;
-            }
-
-            var assistant = assistantOpt.get();
-            Long assistantTelegramUserId = assistant.getTelegramUserId();
-
-            String ticketId = java.util.UUID.randomUUID().toString();
-
-            humanExpertRequests.put(ticketId, new HumanExpertRequest(userId, assistantTelegramUserId, "question"));
-            activeQuestionTicketByUserId.put(userId, ticketId);
-
-            // 1) Сообщаем пользователю
-            SendMessage processingToUser = new SendMessage();
-            processingToUser.setChatId(callbackQuery.getMessage().getChatId().toString());
-            processingToUser.setText("Отправляю запрос специалисту...");
-            try {
-                execute(processingToUser);
-            } catch (TelegramApiException e) {
-                logger.error("Ошибка при отправке пользователю статуса отправки запроса", e);
-            }
-
-            SendMessage toUser = new SendMessage();
-            toUser.setChatId(callbackQuery.getMessage().getChatId().toString());
-            toUser.setText("💼 Ваш вопрос отправлен специалисту. Ожидайте ответа в этом чате.");
-            try {
-                execute(toUser);
-            } catch (TelegramApiException e) {
-                logger.error("Ошибка при отправке пользователю подтверждения отправки", e);
-            }
-
-            // 2) Сообщаем специалисту в боте
-            String userUsername = callbackQuery.getFrom().getUserName();
-            String who = userUsername != null ? "@" + userUsername : "пользователь с id=" + userId;
-
-            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-            InlineKeyboardButton button = new InlineKeyboardButton();
-            button.setText("Ответить на вопрос пользователю");
-            button.setCallbackData("expert_answer_start:" + ticketId);
-            markup.setKeyboard(List.of(List.of(button)));
-
-            SendMessage toAssistant = new SendMessage();
-            toAssistant.setChatId(assistantTelegramUserId.toString());
-            toAssistant.setText("💼 Новый запрос (вопрос):\n\n" + questionText + "\n\n" + "Пользователь: " + who);
-            toAssistant.setReplyMarkup(markup);
-            try {
-                execute(toAssistant);
-            } catch (TelegramApiException e) {
-                logger.error("Ошибка при отправке запроса специалисту", e);
-            }
-
-            // Черновик больше не нужен
-            pendingHumanQuestionDraftByUserId.remove(userId);
-
-            sendCallbackAnswer(callbackQuery.getId(), "✅ Вопрос отправлен специалисту");
-            return;
-        }
-
         // Human expert: открываем ticket у специалиста (переходим в ввод ответа)
         if (data != null && data.startsWith("expert_answer_start:")) {
             String ticketId = data.substring("expert_answer_start:".length()).trim();
@@ -763,11 +712,19 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             }
 
             activeTicketByAssistantUserId.put(userId, ticketId);
-            draftAnswerByAssistantUserId.remove(userId);
+            pendingAnswerByAssistantUserId.remove(userId);
 
             SendMessage toAssistant = new SendMessage();
             toAssistant.setChatId(callbackQuery.getMessage().getChatId().toString());
-            toAssistant.setText("Введите ответ на вопрос пользователя:");
+
+            String targetUsername = userService.getUser(request.userId)
+                .map(u -> u.getUsername())
+                .orElse(null);
+            String displayUsername = (targetUsername != null && !targetUsername.isBlank())
+                ? targetUsername
+                : String.valueOf(request.userId);
+
+            toAssistant.setText("Введите ответ на вопрос пользователя " + displayUsername + " :");
             try {
                 execute(toAssistant);
             } catch (TelegramApiException e) {
@@ -797,7 +754,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 return;
             }
 
-            String answerText = draftAnswerByAssistantUserId.get(userId);
+            String answerText = pendingAnswerByAssistantUserId.get(userId);
             if (answerText == null || answerText.isBlank()) {
                 sendCallbackAnswer(callbackQuery.getId(), "Сначала напишите ответ текстом.");
                 return;
@@ -816,7 +773,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             // подтверждаем специалисту
             SendMessage confirm = new SendMessage();
             confirm.setChatId(callbackQuery.getMessage().getChatId().toString());
-            confirm.setText("✅ Ответ отправлен пользователю.");
+            confirm.setText("Ответ отправлен пользователю");
             try {
                 execute(confirm);
             } catch (TelegramApiException e) {
@@ -824,14 +781,15 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             }
 
             // ticket одноразовый для question
-            humanExpertRequests.remove(ticketId);
+            if ("question".equals(request.mode)) {
+                humanExpertRequests.remove(ticketId);
+            }
             activeTicketByAssistantUserId.remove(userId);
-            draftAnswerByAssistantUserId.remove(userId);
-            activeQuestionTicketByUserId.remove(request.userId);
+            pendingAnswerByAssistantUserId.remove(userId);
 
             assistantPromptContextService.clear(request.userId);
 
-            sendCallbackAnswer(callbackQuery.getId(), "✅ Ответ доставлен");
+            sendCallbackAnswer(callbackQuery.getId(), "ОК");
             return;
         }
 
@@ -1166,7 +1124,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
 
         SendMessage confirm = new SendMessage();
         confirm.setChatId(chatId.toString());
-        confirm.setText("✅ Ответ отправлен пользователю.");
+        confirm.setText("Ответ отправлен пользователю");
         try {
             execute(confirm);
         } catch (TelegramApiException e) {
@@ -1176,6 +1134,12 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         // Для question делаем ticket одноразовым.
         if ("question".equals(request.mode)) {
             humanExpertRequests.remove(ticketId);
+            activeTicketByAssistantUserId.remove(assistantUserId);
+            pendingAnswerByAssistantUserId.remove(assistantUserId);
+            assistantPromptContextService.clear(request.userId);
+        } else {
+            // На всякий случай, если помощник ошибочно ответил вне вкладки.
+            pendingAnswerByAssistantUserId.remove(assistantUserId);
         }
     }
 
@@ -1193,17 +1157,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         if (userId == null) {
             return;
         }
-
-        pendingHumanQuestionDraftByUserId.remove(userId);
-
-        String ticketId = activeQuestionTicketByUserId.remove(userId);
-        if (ticketId != null) {
-            HumanExpertRequest request = humanExpertRequests.remove(ticketId);
-            if (request != null) {
-                activeTicketByAssistantUserUserIdCleanup(request.assistantUserId);
-            }
-        }
-
+        // В question-сценарии ticket создается сразу при сообщении пользователя,
+        // поэтому здесь чистим только контекст режима.
         assistantPromptContextService.clear(userId);
     }
 
@@ -1212,7 +1167,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             return;
         }
         activeTicketByAssistantUserId.remove(assistantUserId);
-        draftAnswerByAssistantUserId.remove(assistantUserId);
+        pendingAnswerByAssistantUserId.remove(assistantUserId);
     }
     
     /**
