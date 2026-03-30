@@ -825,7 +825,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             InlineKeyboardButton button = new InlineKeyboardButton();
-            button.setText("Написать специалисту");
+            button.setText("Согласовать встречу");
             button.setUrl("https://t.me/" + cleanAssistantUsername);
             markup.setKeyboard(List.of(List.of(button)));
             message.setReplyMarkup(markup);
