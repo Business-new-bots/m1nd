@@ -813,10 +813,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
 
-        String contactHint = (userUsername != null && !userUsername.isBlank())
-            ? "Ваш контакт для согласования: @" + (userUsername.startsWith("@") ? userUsername.substring(1) : userUsername)
-            : "Для согласования обязательно представьтесь специалисту в первом сообщении.";
-
         if (cleanAssistantUsername.isBlank()) {
             message.setText(
                 "Специалист выбран, но у него пока не указан публичный username.\n\n" +
@@ -824,9 +820,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             );
         } else if (isMeeting) {
             message.setText(
-                "Специалист для встречи: @" + cleanAssistantUsername + "\n\n" +
-                "Напишите ему напрямую для согласования времени и деталей.\n" +
-                contactHint
+                "Запланируй онлайн встречу с Дмитрием. \n" + "Связаться с ассистентом Дмитрия, для согласования времени и деталей."
             );
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
@@ -837,9 +831,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             message.setReplyMarkup(markup);
         } else {
             message.setText(
-                "Специалист для вопроса: @" + cleanAssistantUsername + "\n\n" +
-                "Напишите ему напрямую, чтобы получить ответ.\n" +
-                contactHint
+                "Задай вопрос Дмитрию, чтобы получить ответ."
             );
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
