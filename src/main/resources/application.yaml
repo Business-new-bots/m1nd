@@ -29,6 +29,7 @@ telegram:
   bot:
    token: ${TELEGRAM_BOT_TOKEN:}
    username: ${TELEGRAM_BOT_USERNAME:}
+   welcome-video-file-id: BAACAgIAAxkBAAINXWnZCduM_H9MZ0NO8keXQOmOmiIBAAIFlwAC2MzISmXBjnd9vErOOwQ
 
 llm:
   api:
@@ -70,6 +71,9 @@ llm:
 app:
   data:
     prompt-file: prompt.txt
+  welcome:
+    video-resource-path: ${WELCOME_VIDEO_RESOURCE_PATH:бот_приветствие.mp4}
+    video-file-path: ${WELCOME_VIDEO_FILE_PATH:src/main/resources/бот_приветствие.mp4}
   feedback:
     delay-minutes: ${FEEDBACK_DELAY_MINUTES:10}  # Задержка перед отправкой опроса (в минутах)
   summary:
