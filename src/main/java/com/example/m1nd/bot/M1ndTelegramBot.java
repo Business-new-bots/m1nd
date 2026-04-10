@@ -33,6 +33,9 @@ import reactor.core.publisher.Mono;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -70,6 +73,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
 
     @Value("${app.welcome.video-resource-path:}")
     private String welcomeVideoResourcePath;
+
+    @Value("${app.welcome.video-file-path:}")
+    private String welcomeVideoFilePath;
 
     // Планировщик для отправки опросов
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
@@ -312,9 +318,10 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             return;
         }
 
-        try (InputStream videoStream = getClass().getClassLoader().getResourceAsStream(welcomeVideoResourcePath)) {
+        try (InputStream videoStream = resolveWelcomeVideoStream()) {
             if (videoStream == null) {
-                logger.warn("Приветственное видео не найдено в resources: {}", welcomeVideoResourcePath);
+                logger.warn("Приветственное видео не найдено: resource='{}', filePath='{}'",
+                    welcomeVideoResourcePath, welcomeVideoFilePath);
                 return;
             }
 
@@ -327,6 +334,38 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         } catch (Exception e) {
             logger.error("Ошибка при чтении приветственного видео из resources", e);
         }
+    }
+
+    private InputStream resolveWelcomeVideoStream() {
+        InputStream classpathStream = getClass().getClassLoader().getResourceAsStream(welcomeVideoResourcePath);
+        if (classpathStream != null) {
+            return classpathStream;
+        }
+
+        if (welcomeVideoFilePath != null && !welcomeVideoFilePath.isBlank()) {
+            Path explicitPath = Paths.get(welcomeVideoFilePath);
+            if (Files.exists(explicitPath) && Files.isRegularFile(explicitPath)) {
+                try {
+                    return Files.newInputStream(explicitPath);
+                } catch (Exception e) {
+                    logger.error("Не удалось открыть приветственное видео по пути: {}", welcomeVideoFilePath, e);
+                }
+            }
+        }
+
+        if (welcomeVideoResourcePath != null && !welcomeVideoResourcePath.isBlank()) {
+            Path defaultResourcesPath = Paths.get("src", "main", "resources", welcomeVideoResourcePath);
+            if (Files.exists(defaultResourcesPath) && Files.isRegularFile(defaultResourcesPath)) {
+                try {
+                    return Files.newInputStream(defaultResourcesPath);
+                } catch (Exception e) {
+                    logger.error("Не удалось открыть приветственное видео по стандартному пути resources: {}",
+                        defaultResourcesPath, e);
+                }
+            }
+        }
+
+        return null;
     }
     
     private void handleQuestion(Update update, String messageText) {
