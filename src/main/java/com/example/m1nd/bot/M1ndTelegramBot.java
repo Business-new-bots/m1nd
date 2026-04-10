@@ -24,12 +24,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendVideo;
+import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import reactor.core.publisher.Mono;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.io.InputStream;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -64,6 +67,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     
     @Value("${app.summary.delay-minutes:5}")
     private int summaryDelayMinutes;
+
+    @Value("${app.welcome.video-resource-path:}")
+    private String welcomeVideoResourcePath;
 
     // Планировщик для отправки опросов
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
@@ -276,12 +282,50 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         
         try {
             execute(message);
+            sendWelcomeVideo(chatId);
 
             // Сразу показываем меню выбора из 3 ассистентов
             SendMessage menuMessage = mainMenuService.buildMainMenuMessage(chatId);
             execute(menuMessage);
         } catch (TelegramApiException e) {
             logger.error("Ошибка при отправке сообщения", e);
+        }
+    }
+
+    private void sendWelcomeVideo(Long chatId) {
+        String welcomeVideoFileId = botConfig.getWelcomeVideoFileId();
+
+        if (welcomeVideoFileId != null && !welcomeVideoFileId.isBlank()) {
+            try {
+                SendVideo sendVideo = new SendVideo();
+                sendVideo.setChatId(chatId.toString());
+                sendVideo.setVideo(new InputFile(welcomeVideoFileId));
+                execute(sendVideo);
+                return;
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке приветственного видео по file_id", e);
+            }
+        }
+
+        if (welcomeVideoResourcePath == null || welcomeVideoResourcePath.isBlank()) {
+            logger.warn("Приветственное видео не настроено: отсутствуют file_id и путь до ресурса");
+            return;
+        }
+
+        try (InputStream videoStream = getClass().getClassLoader().getResourceAsStream(welcomeVideoResourcePath)) {
+            if (videoStream == null) {
+                logger.warn("Приветственное видео не найдено в resources: {}", welcomeVideoResourcePath);
+                return;
+            }
+
+            SendVideo sendVideo = new SendVideo();
+            sendVideo.setChatId(chatId.toString());
+            sendVideo.setVideo(new InputFile(videoStream, welcomeVideoResourcePath));
+            execute(sendVideo);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке приветственного видео", e);
+        } catch (Exception e) {
+            logger.error("Ошибка при чтении приветственного видео из resources", e);
         }
     }
     
