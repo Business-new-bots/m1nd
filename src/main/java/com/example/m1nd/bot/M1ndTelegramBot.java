@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendSticker;
 import org.telegram.telegrambots.meta.api.methods.send.SendVideo;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -76,6 +77,12 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
 
     @Value("${app.welcome.video-file-path:}")
     private String welcomeVideoFilePath;
+
+    @Value("${app.sticker.text-helper-file-id:}")
+    private String textHelperStickerFileId;
+
+    @Value("${app.sticker.pack-link:https://t.me/addstickers/r2dog2}")
+    private String stickerPackLink;
 
     // Планировщик для отправки опросов
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
@@ -673,6 +680,14 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             if (parts.length == 3) {
                 String assistantCode = parts[1];
                 String modeCode = parts[2];
+                if ("text".equals(modeCode)) {
+                    assistantPromptContextService.setAssistant(userId, assistantCode);
+                    assistantPromptContextService.setMode(userId, modeCode);
+
+                    sendTextHelperStickerAndGreeting(chatId);
+                    sendCallbackAnswer(callbackQuery.getId(), "✅");
+                    return;
+                }
                 if ("question".equals(modeCode) || "meeting".equals(modeCode)) {
                     assistantPromptContextService.setAssistant(userId, assistantCode);
                     assistantPromptContextService.setMode(userId, modeCode);
@@ -726,6 +741,41 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             }
         } else {
             sendCallbackAnswer(callbackQuery.getId(), "❌ Неизвестная команда");
+        }
+    }
+
+    private void sendTextHelperStickerAndGreeting(Long chatId) {
+        if (textHelperStickerFileId != null && !textHelperStickerFileId.isBlank()) {
+            try {
+                SendSticker sendSticker = new SendSticker();
+                sendSticker.setChatId(chatId.toString());
+                sendSticker.setSticker(new InputFile(textHelperStickerFileId));
+                execute(sendSticker);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке стикера текстового помощника", e);
+            }
+        } else {
+            SendMessage stickerInfo = new SendMessage();
+            stickerInfo.setChatId(chatId.toString());
+            stickerInfo.setText("Стикерпак: " + stickerPackLink);
+            try {
+                execute(stickerInfo);
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке ссылки на стикерпак", e);
+            }
+        }
+
+        SendMessage greeting = new SendMessage();
+        greeting.setChatId(chatId.toString());
+        greeting.setText(
+            "Привет. я твой бизнес (финансовый, мыслитель)-агент. Обещаю, что наше общение с тобой будет конфеденциальным. " +
+            "Я помогу тебе найти ветное решение и интересующие тебя ответы. " +
+            "А если не найду решение, отправлю твой вопрос основателю и он точно тебе поможет! Что ты хочешь спросить?"
+        );
+        try {
+            execute(greeting);
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке приветствия текстового помощника", e);
         }
     }
     

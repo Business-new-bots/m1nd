@@ -43,10 +43,10 @@ public class MainMenuService {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
         List<InlineKeyboardButton> row1 = new ArrayList<>();
-        row1.add(button("Бизнес ИИ-ассистент", "main_business_ai_assistant"));
+        row1.add(button("Получить информацию от бизнес-ассистента (финансового и мыслителя ассистента)", "main_business_ai_assistant"));
 
         List<InlineKeyboardButton> row2 = new ArrayList<>();
-        row2.add(button("Финансовый ИИ-ассистент", "main_financial_ai_assistant"));
+        row2.add(button("Получить информацию от бизнес-ассистента (финансового и мыслителя ассистента)", "main_financial_ai_assistant"));
 
         List<InlineKeyboardButton> row3 = new ArrayList<>();
         row3.add(button("ИИ ассистент по мышлению", "main_thinking_ai_assistant"));
@@ -93,7 +93,7 @@ public class MainMenuService {
         if ("main_business_ai_assistant".equals(data)) {
             assistantPromptContextService.setAssistant(userId, "business");
             assistantPromptContextService.clearMode(userId);
-            SendMessage message = simpleMessage(chatId, "Бизнес ИИ-ассистент\n\nВыбрать вариант общения:");
+            SendMessage message = simpleMessage(chatId, "Получить информацию от бизнес-ассистента (финансового и мыслителя ассистента)\n\nВыбрать вариант общения:");
             message.setReplyMarkup(createCommunicationOptionsKeyboard("business"));
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
@@ -101,7 +101,7 @@ public class MainMenuService {
         if ("main_financial_ai_assistant".equals(data)) {
             assistantPromptContextService.setAssistant(userId, "financial");
             assistantPromptContextService.clearMode(userId);
-            SendMessage message = simpleMessage(chatId, "Финансовый ИИ-ассистент\n\nВыбрать вариант общения:");
+            SendMessage message = simpleMessage(chatId, "Получить информацию от бизнес-ассистента (финансового и мыслителя ассистента)\n\nВыбрать вариант общения:");
             message.setReplyMarkup(createCommunicationOptionsKeyboard("financial"));
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
@@ -109,7 +109,7 @@ public class MainMenuService {
         if ("main_thinking_ai_assistant".equals(data)) {
             assistantPromptContextService.setAssistant(userId, "thinking");
             assistantPromptContextService.clearMode(userId);
-            SendMessage message = simpleMessage(chatId, "ИИ ассистент по мышлению\n\nВыбрать вариант общения:");
+            SendMessage message = simpleMessage(chatId, "Получить информацию от бизнес-ассистента (финансового и мыслителя ассистента)\n\nВыбрать вариант общения:");
             message.setReplyMarkup(createCommunicationOptionsKeyboard("thinking"));
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
@@ -133,10 +133,9 @@ public class MainMenuService {
                 if ("text".equals(modeCode)) {
                     text = assistant + "\n\nВы выбрали: " + mode + "\n\nОтправьте Ваш запрос:";
                 } else if ("question".equals(modeCode)) {
-                    text = assistant + "\n\nЗадай вопрос Дмитрию, чтобы получить ответ.";
+                    text = assistant + "\n\nПолучить рекомендацию от основателя.";
                 } else if ("meeting".equals(modeCode)) {
-                    text = assistant + "\n\nЗапланируй онлайн встречу с Дмитрием. \n" +
-                            "Связаться с ассистентом Дмитрия, для согласования времени и деталей.";
+                    text = assistant + "\n\nОнлайн-встреча с основателем.";
                 } else {
                     text = assistant + "\n\nВы выбрали: " + mode + "\n\nТеперь задайте ваш вопрос.";
                 }
@@ -158,8 +157,8 @@ public class MainMenuService {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
         keyboard.add(List.of(button("1️⃣ Текстовый помощник", "assistant_choice:" + assistantCode + ":text")));
-        keyboard.add(List.of(button("2️⃣ Задать вопрос реальному специалисту", "assistant_choice:" + assistantCode + ":question")));
-        keyboard.add(List.of(button("3️⃣ Встреча с реальным специалистом", "assistant_choice:" + assistantCode + ":meeting")));
+        keyboard.add(List.of(button("2️⃣ Получить рекомендацию от основателя", "assistant_choice:" + assistantCode + ":question")));
+        keyboard.add(List.of(button("3️⃣ Онлайн-встреча с основателем", "assistant_choice:" + assistantCode + ":meeting")));
         keyboard.add(List.of(button("◀️ Назад", "main_menu_back")));
 
         markup.setKeyboard(keyboard);
@@ -168,9 +167,9 @@ public class MainMenuService {
 
     private String assistantTitle(String code) {
         return switch (code) {
-            case "business" -> "Бизнес ИИ-ассистент";
-            case "financial" -> "Финансовый ИИ-ассистент";
-            case "thinking" -> "ИИ ассистент по мышлению";
+            case "business" -> "Получить информацию от бизнес-ассистента (финансового и мыслителя ассистента)";
+            case "financial" -> "Получить информацию от бизнес-ассистента (финансового и мыслителя ассистента)";
+            case "thinking" -> "Получить информацию от бизнес-ассистента (финансового и мыслителя ассистента)";
             default -> "ИИ-ассистент";
         };
     }
@@ -178,8 +177,8 @@ public class MainMenuService {
     private String modeTitle(String code) {
         return switch (code) {
             case "text" -> "Текстовый помощник";
-            case "question" -> "Задать вопрос реальному специалисту";
-            case "meeting" -> "Встреча с реальным специалистом";
+            case "question" -> "Получить рекомендацию от основателя";
+            case "meeting" -> "Онлайн-встреча с основателем";
             default -> "Неизвестный вариант";
         };
     }
