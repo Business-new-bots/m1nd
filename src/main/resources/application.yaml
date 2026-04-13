@@ -76,6 +76,7 @@ app:
     video-file-path: ${WELCOME_VIDEO_FILE_PATH:src/main/resources/бот_приветствие.mp4}
   sticker:
     text-helper-file-id: ${TEXT_HELPER_STICKER_FILE_ID:}
+    text-helper-set-name: ${TEXT_HELPER_STICKER_SET_NAME:r2dog2}
     pack-link: ${TEXT_HELPER_STICKER_PACK_LINK:https://t.me/addstickers/r2dog2}
   feedback:
     delay-minutes: ${FEEDBACK_DELAY_MINUTES:10}  # Задержка перед отправкой опроса (в минутах)

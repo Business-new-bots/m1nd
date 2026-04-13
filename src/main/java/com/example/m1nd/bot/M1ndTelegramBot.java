@@ -26,8 +26,11 @@ import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendSticker;
 import org.telegram.telegrambots.meta.api.methods.send.SendVideo;
+import org.telegram.telegrambots.meta.api.methods.stickers.GetStickerSet;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.stickers.Sticker;
+import org.telegram.telegrambots.meta.api.objects.stickers.StickerSet;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import reactor.core.publisher.Mono;
 
@@ -80,6 +83,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
 
     @Value("${app.sticker.text-helper-file-id:}")
     private String textHelperStickerFileId;
+
+    @Value("${app.sticker.text-helper-set-name:r2dog2}")
+    private String textHelperStickerSetName;
 
     @Value("${app.sticker.pack-link:https://t.me/addstickers/r2dog2}")
     private String stickerPackLink;
@@ -754,7 +760,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             } catch (TelegramApiException e) {
                 logger.error("Ошибка при отправке стикера текстового помощника", e);
             }
-        } else {
+        } else if (!sendStickerFromSet(chatId)) {
             SendMessage stickerInfo = new SendMessage();
             stickerInfo.setChatId(chatId.toString());
             stickerInfo.setText("Стикерпак: " + stickerPackLink);
@@ -776,6 +782,32 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             execute(greeting);
         } catch (TelegramApiException e) {
             logger.error("Ошибка при отправке приветствия текстового помощника", e);
+        }
+    }
+
+    private boolean sendStickerFromSet(Long chatId) {
+        if (textHelperStickerSetName == null || textHelperStickerSetName.isBlank()) {
+            return false;
+        }
+
+        try {
+            GetStickerSet getStickerSet = new GetStickerSet();
+            getStickerSet.setName(textHelperStickerSetName);
+            StickerSet stickerSet = execute(getStickerSet);
+            if (stickerSet == null || stickerSet.getStickers() == null || stickerSet.getStickers().isEmpty()) {
+                logger.warn("Стикерпак '{}' пустой или недоступен", textHelperStickerSetName);
+                return false;
+            }
+
+            Sticker sticker = stickerSet.getStickers().get(0);
+            SendSticker sendSticker = new SendSticker();
+            sendSticker.setChatId(chatId.toString());
+            sendSticker.setSticker(new InputFile(sticker.getFileId()));
+            execute(sendSticker);
+            return true;
+        } catch (TelegramApiException e) {
+            logger.error("Не удалось получить стикер из набора '{}'", textHelperStickerSetName, e);
+            return false;
         }
     }
     

@@ -43,13 +43,16 @@ public class MainMenuService {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
         List<InlineKeyboardButton> row1 = new ArrayList<>();
-        row1.add(button("Получить информацию от бизнес-ассистента (финансового и мыслителя ассистента)", "main_business_ai_assistant"));
+        row1.add(button(
+            "1. Получить информацию от\nбизнес-ассистента\n(финансового и мыслителя ассистента)",
+            "assistant_choice:business:text"
+        ));
 
         List<InlineKeyboardButton> row2 = new ArrayList<>();
-        row2.add(button("Получить информацию от бизнес-ассистента (финансового и мыслителя ассистента)", "main_financial_ai_assistant"));
+        row2.add(button("2. Получить рекомендацию от основателя", "assistant_choice:business:question"));
 
         List<InlineKeyboardButton> row3 = new ArrayList<>();
-        row3.add(button("ИИ ассистент по мышлению", "main_thinking_ai_assistant"));
+        row3.add(button("3. Онлайн-встреча с основателем", "assistant_choice:business:meeting"));
 
         keyboard.add(row1);
         keyboard.add(row2);
@@ -70,7 +73,7 @@ public class MainMenuService {
     public SendMessage buildMainMenuMessage(Long chatId) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText("Выберите ассистента:");
+        message.setText("Выбрать тип общения");
         message.setReplyMarkup(createMainMenuInlineKeyboard());
         return message;
     }
