@@ -164,8 +164,8 @@ public class MainMenuService {
         };
 
         keyboard.add(List.of(button(textAssistantButton, "assistant_choice:" + assistantCode + ":text")));
-        keyboard.add(List.of(button("2️⃣ Задать вопрос реальному специалисту", "assistant_choice:" + assistantCode + ":question")));
-        keyboard.add(List.of(button("3️⃣ Встреча с реальным специалистом", "assistant_choice:" + assistantCode + ":meeting")));
+        keyboard.add(List.of(button("2️⃣ Получить рекомендацию от основателя", "assistant_choice:" + assistantCode + ":question")));
+        keyboard.add(List.of(button("3️⃣ Онлайн-встреча с основателем", "assistant_choice:" + assistantCode + ":meeting")));
         keyboard.add(List.of(button("◀️ Назад", "main_menu_back")));
 
         markup.setKeyboard(keyboard);
@@ -184,8 +184,8 @@ public class MainMenuService {
     private String modeTitle(String code) {
         return switch (code) {
             case "text" -> "Текстовый помощник";
-            case "question" -> "Задать вопрос реальному специалисту";
-            case "meeting" -> "Встреча с реальным специалистом";
+            case "question" -> "Получить рекомендацию от основателя";
+            case "meeting" -> "Онлайн-встреча с основателем";
             default -> "Неизвестный вариант";
         };
     }
