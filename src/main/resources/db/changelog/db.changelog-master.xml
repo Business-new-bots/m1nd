@@ -17,5 +17,7 @@
     <include file="classpath:db/changelog/011_add_user_progress_counters.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/013_drop_legacy_menu_tables.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/014_add_assistant_type.xml" relativeToChangelogFile="false"/>
+    <include file="classpath:db/changelog/015_create_habit_tracker_entries.xml" relativeToChangelogFile="false"/>
+    <include file="classpath:db/changelog/016_create_habit_daily_tasks.xml" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

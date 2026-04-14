@@ -51,9 +51,13 @@ public class MainMenuService {
         List<InlineKeyboardButton> row3 = new ArrayList<>();
         row3.add(button("Ассистент по мышлению", "main_thinking_ai_assistant"));
 
+        List<InlineKeyboardButton> row4 = new ArrayList<>();
+        row4.add(button("Трекер привычек", "main_habits_tracker"));
+
         keyboard.add(row1);
         keyboard.add(row2);
         keyboard.add(row3);
+        keyboard.add(row4);
 
         markup.setKeyboard(keyboard);
         return markup;
