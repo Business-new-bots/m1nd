@@ -690,7 +690,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     assistantPromptContextService.setAssistant(userId, assistantCode);
                     assistantPromptContextService.setMode(userId, modeCode);
 
-                    sendTextHelperStickerAndGreeting(chatId);
+                    sendTextHelperStickerAndGreeting(chatId, assistantCode);
                     sendCallbackAnswer(callbackQuery.getId(), "✅");
                     return;
                 }
@@ -750,7 +750,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private void sendTextHelperStickerAndGreeting(Long chatId) {
+    private void sendTextHelperStickerAndGreeting(Long chatId, String assistantCode) {
         if (textHelperStickerFileId != null && !textHelperStickerFileId.isBlank()) {
             try {
                 SendSticker sendSticker = new SendSticker();
@@ -773,8 +773,15 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
 
         SendMessage greeting = new SendMessage();
         greeting.setChatId(chatId.toString());
+        String greetingPrefix = switch (assistantCode) {
+            case "business" -> "Привет, я твой бизнес-агент. ";
+            case "financial" -> "Привет, я твой финансовый-агент. ";
+            case "thinking" -> "Привет, я твой ИИ-агент мыслитель. ";
+            default -> "Привет. ";
+        };
         greeting.setText(
-            "Привет. я твой бизнес (финансовый, мыслитель)-агент. Обещаю, что наше общение с тобой будет конфеденциальным. " +
+            greetingPrefix +
+            "Обещаю, что наше общение с тобой будет конфеденциальным. " +
             "Я помогу тебе найти ветное решение и интересующие тебя ответы. " +
             "А если не найду решение, отправлю твой вопрос основателю и он точно тебе поможет! Что ты хочешь спросить?"
         );
