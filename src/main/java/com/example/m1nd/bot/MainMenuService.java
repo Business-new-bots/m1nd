@@ -43,13 +43,13 @@ public class MainMenuService {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
         List<InlineKeyboardButton> row1 = new ArrayList<>();
-        row1.add(button("Бизнес ИИ-ассистент", "main_business_ai_assistant"));
+        row1.add(button("Бизнес ассистент", "main_business_ai_assistant"));
 
         List<InlineKeyboardButton> row2 = new ArrayList<>();
-        row2.add(button("Финансовый ИИ-ассистент", "main_financial_ai_assistant"));
+        row2.add(button("Финансовый ассистент", "main_financial_ai_assistant"));
 
         List<InlineKeyboardButton> row3 = new ArrayList<>();
-        row3.add(button("ИИ ассистент по мышлению", "main_thinking_ai_assistant"));
+        row3.add(button("Ассистент по мышлению", "main_thinking_ai_assistant"));
 
         keyboard.add(row1);
         keyboard.add(row2);
@@ -93,7 +93,7 @@ public class MainMenuService {
         if ("main_business_ai_assistant".equals(data)) {
             assistantPromptContextService.setAssistant(userId, "business");
             assistantPromptContextService.clearMode(userId);
-            SendMessage message = simpleMessage(chatId, "Бизнес ИИ-ассистент\n\nВыбрать вариант общения:");
+            SendMessage message = simpleMessage(chatId, "Бизнес ассистент\n\nВыбрать вариант общения:");
             message.setReplyMarkup(createCommunicationOptionsKeyboard("business"));
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
@@ -101,7 +101,7 @@ public class MainMenuService {
         if ("main_financial_ai_assistant".equals(data)) {
             assistantPromptContextService.setAssistant(userId, "financial");
             assistantPromptContextService.clearMode(userId);
-            SendMessage message = simpleMessage(chatId, "Финансовый ИИ-ассистент\n\nВыбрать вариант общения:");
+            SendMessage message = simpleMessage(chatId, "Финансовый ассистент\n\nВыбрать вариант общения:");
             message.setReplyMarkup(createCommunicationOptionsKeyboard("financial"));
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
@@ -109,7 +109,7 @@ public class MainMenuService {
         if ("main_thinking_ai_assistant".equals(data)) {
             assistantPromptContextService.setAssistant(userId, "thinking");
             assistantPromptContextService.clearMode(userId);
-            SendMessage message = simpleMessage(chatId, "ИИ ассистент по мышлению\n\nВыбрать вариант общения:");
+            SendMessage message = simpleMessage(chatId, "Ассистент по мышлению\n\nВыбрать вариант общения:");
             message.setReplyMarkup(createCommunicationOptionsKeyboard("thinking"));
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
@@ -156,8 +156,14 @@ public class MainMenuService {
     private InlineKeyboardMarkup createCommunicationOptionsKeyboard(String assistantCode) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        String textAssistantButton = switch (assistantCode) {
+            case "business" -> "1️⃣ Спросить у ИИ бизнес-ассистента";
+            case "financial" -> "1️⃣ Спросить у ИИ финансового-ассистента";
+            case "thinking" -> "1️⃣ Спросить у ИИ-агента мыслителя";
+            default -> "1️⃣ Текстовый помощник";
+        };
 
-        keyboard.add(List.of(button("1️⃣ Текстовый помощник", "assistant_choice:" + assistantCode + ":text")));
+        keyboard.add(List.of(button(textAssistantButton, "assistant_choice:" + assistantCode + ":text")));
         keyboard.add(List.of(button("2️⃣ Задать вопрос реальному специалисту", "assistant_choice:" + assistantCode + ":question")));
         keyboard.add(List.of(button("3️⃣ Встреча с реальным специалистом", "assistant_choice:" + assistantCode + ":meeting")));
         keyboard.add(List.of(button("◀️ Назад", "main_menu_back")));
@@ -168,9 +174,9 @@ public class MainMenuService {
 
     private String assistantTitle(String code) {
         return switch (code) {
-            case "business" -> "Бизнес ИИ-ассистент";
-            case "financial" -> "Финансовый ИИ-ассистент";
-            case "thinking" -> "ИИ ассистент по мышлению";
+            case "business" -> "Бизнес ассистент";
+            case "financial" -> "Финансовый ассистент";
+            case "thinking" -> "Ассистент по мышлению";
             default -> "ИИ-ассистент";
         };
     }

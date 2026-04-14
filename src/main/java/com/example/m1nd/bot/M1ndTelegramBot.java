@@ -774,8 +774,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         SendMessage greeting = new SendMessage();
         greeting.setChatId(chatId.toString());
         String greetingPrefix = switch (assistantCode) {
-            case "business" -> "Привет, я твой бизнес-агент. ";
-            case "financial" -> "Привет, я твой финансовый-агент. ";
+            case "business" -> "Привет, я твой бизнес ИИ-агент. ";
+            case "financial" -> "Привет, я твой финансовый ИИ-агент. ";
             case "thinking" -> "Привет, я твой ИИ-агент мыслитель. ";
             default -> "Привет. ";
         };
