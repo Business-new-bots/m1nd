@@ -5,6 +5,7 @@ import com.example.m1nd.model.HabitTrackerEntry;
 import com.example.m1nd.repository.HabitDailyTaskRepository;
 import com.example.m1nd.repository.HabitTrackerEntryRepository;
 import com.example.m1nd.service.I18nService;
+import com.example.m1nd.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -26,6 +27,7 @@ public class HabitsTrackerService {
     private final HabitTrackerEntryRepository habitTrackerEntryRepository;
     private final HabitDailyTaskRepository habitDailyTaskRepository;
     private final I18nService i18nService;
+    private final UserService userService;
 
     private final Map<Long, HabitDraft> habitDraftByUser = new ConcurrentHashMap<>();
 
@@ -45,7 +47,7 @@ public class HabitsTrackerService {
         String data = callbackQuery.getData();
         Long userId = callbackQuery.getFrom().getId();
         Long chatId = callbackQuery.getMessage().getChatId();
-        String languageCode = callbackQuery.getFrom().getLanguageCode();
+        String languageCode = userService.resolveLanguage(userId, callbackQuery.getFrom().getLanguageCode());
 
         if ("main_habits_tracker".equals(data)) {
             return openHabitsTracker(chatId, userId, languageCode);

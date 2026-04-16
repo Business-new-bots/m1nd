@@ -15,16 +15,20 @@ import java.util.List;
 
 import com.example.m1nd.service.AssistantPromptContextService;
 import com.example.m1nd.service.I18nService;
+import com.example.m1nd.service.UserService;
 
 @Service
 public class MainMenuService {
 
     private final AssistantPromptContextService assistantPromptContextService;
     private final I18nService i18nService;
+    private final UserService userService;
 
-    public MainMenuService(AssistantPromptContextService assistantPromptContextService, I18nService i18nService) {
+    public MainMenuService(AssistantPromptContextService assistantPromptContextService, I18nService i18nService,
+                           UserService userService) {
         this.assistantPromptContextService = assistantPromptContextService;
         this.i18nService = i18nService;
+        this.userService = userService;
     }
 
     public ReplyKeyboardMarkup createMainReplyKeyboard(String languageCode) {
@@ -96,7 +100,7 @@ public class MainMenuService {
         String data = callbackQuery.getData();
         Long userId = callbackQuery.getFrom().getId();
         Long chatId = callbackQuery.getMessage().getChatId();
-        String languageCode = callbackQuery.getFrom().getLanguageCode();
+        String languageCode = userService.resolveLanguage(userId, callbackQuery.getFrom().getLanguageCode());
 
         if ("main_business_ai_assistant".equals(data)) {
             assistantPromptContextService.setAssistant(userId, "business");

@@ -11,10 +11,11 @@ import com.example.m1nd.service.LLMService;
 import com.example.m1nd.service.SummaryService;
 import com.example.m1nd.service.UserService;
 import com.example.m1nd.service.WorkingApiService;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
-import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -24,7 +25,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendSticker;
 import org.telegram.telegrambots.meta.api.methods.send.SendVideo;
 import org.telegram.telegrambots.meta.api.methods.stickers.GetStickerSet;
@@ -203,7 +203,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     || "меню".equalsIgnoreCase(messageText)) {
                 logger.info("Обработка команды /menu");
                 Long chatId = update.getMessage().getChatId();
-                String languageCode = update.getMessage().getFrom().getLanguageCode();
+                String languageCode = userService.resolveLanguage(userId, update.getMessage().getFrom().getLanguageCode());
                 SendMessage menuMessage = mainMenuService.buildMainMenuMessage(chatId, languageCode);
                 try {
                     execute(menuMessage);
@@ -285,8 +285,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         
         Long chatId = update.getMessage().getChatId();
         Long userId = update.getMessage().getFrom().getId();
-        String username = update.getMessage().getFrom().getUserName();
-        String languageCode = update.getMessage().getFrom().getLanguageCode();
 
         // На /start сбрасываем активную Human Expert встречу (если была).
         clearActiveMeetingState(userId);
@@ -294,27 +292,51 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         // Отслеживаем активность
         userService.trackUserActivity(userId);
         
+        try {
+            execute(buildLanguageSelectionMessage(chatId));
+        } catch (TelegramApiException e) {
+            logger.error("Ошибка при отправке сообщения", e);
+        }
+    }
+
+    private SendMessage buildLanguageSelectionMessage(Long chatId) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText("Выберите язык / Choose language");
+
+        InlineKeyboardButton ruButton = new InlineKeyboardButton();
+        ruButton.setText("Русский");
+        ruButton.setCallbackData("language_select:ru");
+
+        InlineKeyboardButton enButton = new InlineKeyboardButton();
+        enButton.setText("English");
+        enButton.setCallbackData("language_select:en");
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(List.of(List.of(ruButton, enButton)));
+        message.setReplyMarkup(markup);
+        return message;
+    }
+
+    private void sendLocalizedWelcomeFlow(Long chatId, Long userId, String username, String languageCode) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
         message.setText(i18nService.get(languageCode, "start.welcome.text"));
-        
-        // Если пользователь администратор - добавляем кнопки
+
         if (username != null) {
             boolean isAdmin = adminService.isAdmin(username);
             logger.info("Проверка админа для username '{}' (userId: {}): {}", username, userId, isAdmin);
             if (isAdmin) {
-                message.setReplyMarkup(adminMenuService.createAdminKeyboard());
+                message.setReplyMarkup(adminMenuService.createAdminKeyboard(languageCode));
                 logger.info("Кнопки администратора добавлены для {}", username);
             }
         } else {
             logger.warn("Username пользователя {} равен null", userId);
         }
-        
+
         try {
             execute(message);
             sendWelcomeVideo(chatId);
-
-            // Сразу показываем меню выбора из 3 ассистентов
             SendMessage menuMessage = mainMenuService.buildMainMenuMessage(chatId, languageCode);
             execute(menuMessage);
         } catch (TelegramApiException e) {
@@ -396,7 +418,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         Long chatId = update.getMessage().getChatId();
         Long userId = update.getMessage().getFrom().getId();
         String modeCode = assistantPromptContextService.getMode(userId);
-        String languageCode = update.getMessage().getFrom().getLanguageCode();
+        String languageCode = userService.resolveLanguage(userId, update.getMessage().getFrom().getLanguageCode());
         
         // Отслеживаем активность пользователя
         userService.trackUserActivity(userId);
@@ -670,7 +692,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         Long userId = callbackQuery.getFrom().getId();
         String username = callbackQuery.getFrom().getUserName();
         Long chatId = callbackQuery.getMessage().getChatId();
-        String languageCode = callbackQuery.getFrom().getLanguageCode();
+        String languageCode = userService.resolveLanguage(userId, callbackQuery.getFrom().getLanguageCode());
         
         logger.info("Обработка callback: {} от пользователя {}", data, username);
 
@@ -691,6 +713,14 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         // Обработка опросов (доступны всем пользователям)
         if (data != null && data.startsWith("feedback_")) {
             handleFeedbackCallback(callbackQuery, data);
+            return;
+        }
+
+        if (data != null && data.startsWith("language_select:")) {
+            String selectedLanguage = data.substring("language_select:".length());
+            userService.setPreferredLanguage(userId, selectedLanguage);
+            sendCallbackAnswer(callbackQuery.getId(), "✅");
+            sendLocalizedWelcomeFlow(chatId, userId, username, selectedLanguage);
             return;
         }
 
@@ -1132,7 +1162,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         String username = callbackQuery.getFrom().getUserName();
         String firstName = callbackQuery.getFrom().getFirstName();
         Long chatId = callbackQuery.getMessage().getChatId();
-        String languageCode = callbackQuery.getFrom().getLanguageCode();
+        String languageCode = userService.resolveLanguage(userId, callbackQuery.getFrom().getLanguageCode());
         
         String question = lastUserQuestion.getOrDefault(userId, i18nService.get(languageCode, "feedback.unknown_question"));
         
@@ -1189,7 +1219,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         Long userId = update.getMessage().getFrom().getId();
         String username = update.getMessage().getFrom().getUserName();
         String firstName = update.getMessage().getFrom().getFirstName();
-        String languageCode = update.getMessage().getFrom().getLanguageCode();
+        String languageCode = userService.resolveLanguage(userId, update.getMessage().getFrom().getLanguageCode());
         String question = lastUserQuestion.getOrDefault(userId, i18nService.get(languageCode, "feedback.unknown_question"));
         Integer rating = pendingRatings.getOrDefault(userId, null);
         
@@ -1253,7 +1283,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         Long chatId = update.getMessage().getChatId();
         Long userId = update.getMessage().getFrom().getId();
         String username = update.getMessage().getFrom().getUserName();
-        String languageCode = update.getMessage().getFrom().getLanguageCode();
+        String languageCode = userService.resolveLanguage(userId, update.getMessage().getFrom().getLanguageCode());
         
         // Отслеживаем активность
         userService.trackUserActivity(userId);

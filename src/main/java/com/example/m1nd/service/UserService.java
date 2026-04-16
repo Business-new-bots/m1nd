@@ -34,6 +34,7 @@ public class UserService {
             String username = update.getMessage().getFrom().getUserName();
             String firstName = update.getMessage().getFrom().getFirstName();
             String lastName = update.getMessage().getFrom().getLastName();
+            String telegramLanguageCode = update.getMessage().getFrom().getLanguageCode();
             
             LocalDateTime now = LocalDateTime.now();
             
@@ -53,6 +54,7 @@ public class UserService {
                 newUser.setTotalMessages(0);
                 newUser.setSessionsCount(1);
                 newUser.setIsReturningUser(false);
+                newUser.setPreferredLanguage(normalizeLanguageCode(telegramLanguageCode));
                 
                 userRepository.save(newUser);
                 log.info("Зарегистрирован новый пользователь в БД: {}", userId);
@@ -65,6 +67,9 @@ public class UserService {
                 user.setUsername(username);
                 user.setFirstName(firstName);
                 user.setLastName(lastName);
+                if (user.getPreferredLanguage() == null || user.getPreferredLanguage().isBlank()) {
+                    user.setPreferredLanguage(normalizeLanguageCode(telegramLanguageCode));
+                }
                 
                 userRepository.save(user);
                 log.debug("Обновлена активность пользователя в БД {}: {}", userId, now);
@@ -180,6 +185,7 @@ public class UserService {
                 existingUser.setSessionsCount(user.getSessionsCount());
                 existingUser.setIsReturningUser(user.getIsReturningUser());
                 existingUser.setLastReminderSentAt(user.getLastReminderSentAt());
+                existingUser.setPreferredLanguage(user.getPreferredLanguage());
                 
                 userRepository.save(existingUser);
                 log.debug("Обновлен пользователь в БД {}", user.getUserId());
@@ -191,5 +197,28 @@ public class UserService {
         } catch (Exception e) {
             log.error("Ошибка при обновлении пользователя в БД", e);
         }
+    }
+
+    public String resolveLanguage(Long userId, String telegramLanguageCode) {
+        return userRepository.findByUserId(userId)
+            .map(User::getPreferredLanguage)
+            .filter(language -> language != null && !language.isBlank())
+            .orElse(normalizeLanguageCode(telegramLanguageCode));
+    }
+
+    @Transactional
+    public void setPreferredLanguage(Long userId, String languageCode) {
+        userRepository.findByUserId(userId).ifPresent(user -> {
+            user.setPreferredLanguage(normalizeLanguageCode(languageCode));
+            userRepository.save(user);
+        });
+    }
+
+    private String normalizeLanguageCode(String languageCode) {
+        if (languageCode == null || languageCode.isBlank()) {
+            return "ru";
+        }
+        String normalized = languageCode.trim().toLowerCase();
+        return normalized.startsWith("en") ? "en" : "ru";
     }
 }

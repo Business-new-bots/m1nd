@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="017_add_preferred_language_to_users" author="cursor">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="users"/>
+                <not>
+                    <columnExists tableName="users" columnName="preferred_language"/>
+                </not>
+            </and>
+        </preConditions>
+
+        <addColumn tableName="users">
+            <column name="preferred_language" type="VARCHAR(10)"/>
+        </addColumn>
+
+        <rollback>
+            <dropColumn tableName="users" columnName="preferred_language"/>
+        </rollback>
+    </changeSet>
+</databaseChangeLog>

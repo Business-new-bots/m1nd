@@ -253,7 +253,7 @@ public class AdminMenuService {
         Long userId = callbackQuery.getFrom().getId();
         String username = callbackQuery.getFrom().getUserName();
         Long chatId = callbackQuery.getMessage().getChatId();
-        String languageCode = callbackQuery.getFrom().getLanguageCode();
+        String languageCode = userService.resolveLanguage(userId, callbackQuery.getFrom().getLanguageCode());
 
         List<SendMessage> messages = new ArrayList<>();
         String callbackAnswer = "✅";
@@ -387,7 +387,7 @@ public class AdminMenuService {
         Long userId = update.getMessage().getFrom().getId();
         String username = update.getMessage().getFrom().getUserName();
         Long chatId = update.getMessage().getChatId();
-        String languageCode = update.getMessage().getFrom().getLanguageCode();
+        String languageCode = userService.resolveLanguage(userId, update.getMessage().getFrom().getLanguageCode());
 
         if (username == null || !adminService.isAdmin(username)) {
             return AdminTextResult.notHandled();

@@ -62,5 +62,9 @@ public class User {
     @Column(name = "last_reminder_sent_at")
     @JsonProperty("lastReminderSentAt")
     private LocalDateTime lastReminderSentAt;  // Дата последнего отправленного напоминания
+
+    @Column(name = "preferred_language")
+    @JsonProperty("preferredLanguage")
+    private String preferredLanguage;
 }
 
