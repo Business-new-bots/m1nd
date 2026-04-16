@@ -4,6 +4,7 @@ import com.example.m1nd.model.AssistantType;
 import com.example.m1nd.service.AdminService;
 import com.example.m1nd.service.AssistantService;
 import com.example.m1nd.service.FeedbackService;
+import com.example.m1nd.service.I18nService;
 import com.example.m1nd.service.StatisticsService;
 import com.example.m1nd.service.SummaryService;
 import com.example.m1nd.service.UserService;
@@ -34,20 +35,25 @@ public class AdminMenuService {
     private final FeedbackService feedbackService;
     private final StatisticsService statisticsService;
     private final SummaryService summaryService;
+    private final I18nService i18nService;
     private final Map<Long, Boolean> waitingForAdminUsername = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> waitingForRemoveAdminUsername = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> waitingForAssistantUsername = new ConcurrentHashMap<>();
     private final Map<Long, String> pendingAssistantUsername = new ConcurrentHashMap<>();
     private final Map<Long, Boolean> waitingForRemoveAssistantUsername = new ConcurrentHashMap<>();
     public InlineKeyboardMarkup createAdminKeyboard() {
+        return createAdminKeyboard("ru");
+    }
+
+    public InlineKeyboardMarkup createAdminKeyboard(String languageCode) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
 
         InlineKeyboardButton statsButton = new InlineKeyboardButton();
-        statsButton.setText("📊 Статистика");
+        statsButton.setText(i18nService.get(languageCode, "admin.button.stats"));
         statsButton.setCallbackData("stats");
 
         InlineKeyboardButton adminButton = new InlineKeyboardButton();
-        adminButton.setText("👤 Админ");
+        adminButton.setText(i18nService.get(languageCode, "admin.button.admin"));
         adminButton.setCallbackData("admin_menu");
 
         List<InlineKeyboardButton> row = new ArrayList<>();
@@ -62,42 +68,46 @@ public class AdminMenuService {
     }
 
     public InlineKeyboardMarkup createAdminMenuKeyboard() {
+        return createAdminMenuKeyboard("ru");
+    }
+
+    public InlineKeyboardMarkup createAdminMenuKeyboard(String languageCode) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
 
         InlineKeyboardButton addAdminButton = new InlineKeyboardButton();
-        addAdminButton.setText("➕ Добавить админа");
+        addAdminButton.setText(i18nService.get(languageCode, "admin.menu.add_admin"));
         addAdminButton.setCallbackData("add_admin_prompt");
 
         InlineKeyboardButton listAdminsButton = new InlineKeyboardButton();
-        listAdminsButton.setText("📋 Список админов");
+        listAdminsButton.setText(i18nService.get(languageCode, "admin.menu.list_admins"));
         listAdminsButton.setCallbackData("list_admins");
 
         InlineKeyboardButton removeAdminButton = new InlineKeyboardButton();
-        removeAdminButton.setText("➖ Удалить админа");
+        removeAdminButton.setText(i18nService.get(languageCode, "admin.menu.remove_admin"));
         removeAdminButton.setCallbackData("remove_admin_prompt");
 
         InlineKeyboardButton feedbacksButton = new InlineKeyboardButton();
-        feedbacksButton.setText("📝 Опросы");
+        feedbacksButton.setText(i18nService.get(languageCode, "admin.menu.feedbacks"));
         feedbacksButton.setCallbackData("view_feedbacks");
 
         InlineKeyboardButton activityButton = new InlineKeyboardButton();
-        activityButton.setText("📈 Активность");
+        activityButton.setText(i18nService.get(languageCode, "admin.menu.activity"));
         activityButton.setCallbackData("admin_activity");
 
         InlineKeyboardButton addAssistantButton = new InlineKeyboardButton();
-        addAssistantButton.setText("➕ Ассистент бизнеса");
+        addAssistantButton.setText(i18nService.get(languageCode, "admin.menu.add_assistant"));
         addAssistantButton.setCallbackData("add_business_assistant_prompt");
 
         InlineKeyboardButton listAssistantsButton = new InlineKeyboardButton();
-        listAssistantsButton.setText("📋 Ассистенты бизнеса");
+        listAssistantsButton.setText(i18nService.get(languageCode, "admin.menu.list_assistants"));
         listAssistantsButton.setCallbackData("list_business_assistants");
 
         InlineKeyboardButton removeAssistantButton = new InlineKeyboardButton();
-        removeAssistantButton.setText("➖ Удалить ассистента");
+        removeAssistantButton.setText(i18nService.get(languageCode, "admin.menu.remove_assistant"));
         removeAssistantButton.setCallbackData("remove_business_assistant_prompt");
 
         InlineKeyboardButton backButton = new InlineKeyboardButton();
-        backButton.setText("◀️ Назад");
+        backButton.setText(i18nService.get(languageCode, "menu.option.back"));
         backButton.setCallbackData("back_to_main");
 
         List<InlineKeyboardButton> row1 = new ArrayList<>();
@@ -243,31 +253,32 @@ public class AdminMenuService {
         Long userId = callbackQuery.getFrom().getId();
         String username = callbackQuery.getFrom().getUserName();
         Long chatId = callbackQuery.getMessage().getChatId();
+        String languageCode = callbackQuery.getFrom().getLanguageCode();
 
         List<SendMessage> messages = new ArrayList<>();
         String callbackAnswer = "✅";
 
         if (username == null || !adminService.isAdmin(username)) {
-            callbackAnswer = "❌ У вас нет доступа к этой функции.";
+            callbackAnswer = i18nService.get(languageCode, "admin.error.no_access");
             return new AdminMenuResult(messages, callbackAnswer);
         }
 
         if ("stats".equals(data)) {
             userService.trackUserActivity(userId);
-            messages.addAll(buildStatisticsMessages(chatId));
-            callbackAnswer = "✅ Статистика отправлена";
+            messages.addAll(buildStatisticsMessages(chatId, languageCode));
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.stats_sent");
         } else if ("admin_menu".equals(data)) {
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
-            message.setText("👤 Меню администратора\n\nВыберите действие:");
-            message.setReplyMarkup(createAdminMenuKeyboard());
+            message.setText(i18nService.get(languageCode, "admin.menu.title"));
+            message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
             messages.add(message);
-            callbackAnswer = "✅ Меню открыто";
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.menu_opened");
         } else if ("back_to_main".equals(data)) {
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
-            message.setText("Главное меню");
-            message.setReplyMarkup(createAdminKeyboard());
+            message.setText(i18nService.get(languageCode, "menu.main.title"));
+            message.setReplyMarkup(createAdminKeyboard(languageCode));
             messages.add(message);
             callbackAnswer = "✅";
         } else if ("add_admin_prompt".equals(data)) {
@@ -275,31 +286,29 @@ public class AdminMenuService {
 
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
-            message.setText("📝 Отправьте username пользователя, которого хотите добавить как администратора.\n\n" +
-                "Формат: @username или просто username\n\n" +
-                "Пример: @puh2012 или puh2012");
-            message.setReplyMarkup(createAdminMenuKeyboard());
+            message.setText(i18nService.get(languageCode, "admin.prompt.add_admin"));
+            message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
             messages.add(message);
-            callbackAnswer = "✅ Введите username";
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.enter_username");
         } else if ("list_admins".equals(data)) {
-            messages.add(buildListAdminsMessage(chatId));
-            callbackAnswer = "✅ Список отправлен";
+            messages.add(buildListAdminsMessage(chatId, languageCode));
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.list_sent");
         } else if ("view_feedbacks".equals(data)) {
-            messages.addAll(buildFeedbacksMessages(chatId));
-            callbackAnswer = "✅ Опросы отправлены";
+            messages.addAll(buildFeedbacksMessages(chatId, languageCode));
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.feedbacks_sent");
         } else if ("admin_activity".equals(data)) {
-            messages.add(buildActivityDateSelectionMessage(chatId));
-            callbackAnswer = "✅ Выберите дату";
+            messages.add(buildActivityDateSelectionMessage(chatId, languageCode));
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.choose_date");
         } else if (data != null && data.startsWith("activity_date:")) {
             String dateStr = data.substring("activity_date:".length());
-            messages.addAll(buildActivityUsersForDateMessages(chatId, dateStr));
+            messages.addAll(buildActivityUsersForDateMessages(chatId, dateStr, languageCode));
             callbackAnswer = "✅";
         } else if (data != null && data.startsWith("activity_user:")) {
             String[] parts = data.substring("activity_user:".length()).split(":");
             if (parts.length == 2) {
                 String dateStr = parts[0];
                 Long targetUserId = Long.parseLong(parts[1]);
-                messages.addAll(buildActivityUserSummariesMessages(chatId, dateStr, targetUserId));
+                messages.addAll(buildActivityUserSummariesMessages(chatId, dateStr, targetUserId, languageCode));
                 callbackAnswer = "✅";
             }
         } else if ("remove_admin_prompt".equals(data)) {
@@ -307,38 +316,33 @@ public class AdminMenuService {
 
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
-            message.setText("📝 Отправьте username администратора, которого хотите удалить.\n\n" +
-                "Формат: @username или просто username\n\n" +
-                "Пример: @puh2012 или puh2012");
-            message.setReplyMarkup(createAdminMenuKeyboard());
+            message.setText(i18nService.get(languageCode, "admin.prompt.remove_admin"));
+            message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
             messages.add(message);
-            callbackAnswer = "✅ Введите username";
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.enter_username");
         } else if ("add_business_assistant_prompt".equals(data)) {
             waitingForAssistantUsername.put(userId, true);
             pendingAssistantUsername.remove(userId);
 
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
-            message.setText("📝 Отправьте username пользователя, которого хотите сделать бизнес-ассистентом.\n\n" +
-                "Формат: @username или просто username\n\n" +
-                "Важно: пользователь должен хотя бы раз написать боту, чтобы мы могли отправлять ему вопросы.");
-            message.setReplyMarkup(createAdminMenuKeyboard());
+            message.setText(i18nService.get(languageCode, "admin.prompt.add_assistant"));
+            message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
             messages.add(message);
-            callbackAnswer = "✅ Введите username ассистента";
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.enter_assistant_username");
         } else if ("list_business_assistants".equals(data)) {
-            messages.add(buildListAssistantsMessage(chatId));
-            callbackAnswer = "✅ Список ассистентов отправлен";
+            messages.add(buildListAssistantsMessage(chatId, languageCode));
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.assistants_sent");
         } else if ("remove_business_assistant_prompt".equals(data)) {
             waitingForRemoveAssistantUsername.put(userId, true);
             pendingAssistantUsername.remove(userId);
 
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
-            message.setText("📝 Отправьте username ассистента, которого хотите отключить.\n\n" +
-                "Формат: @username или просто username");
-            message.setReplyMarkup(createAdminMenuKeyboard());
+            message.setText(i18nService.get(languageCode, "admin.prompt.remove_assistant"));
+            message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
             messages.add(message);
-            callbackAnswer = "✅ Введите username ассистента";
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.enter_assistant_username");
         } else if (data != null && data.startsWith("assistant_type:")) {
             String typeCode = data.substring("assistant_type:".length());
             String targetUsername = pendingAssistantUsername.remove(userId);
@@ -346,30 +350,30 @@ public class AdminMenuService {
             if (targetUsername == null || targetUsername.isBlank()) {
                 SendMessage message = new SendMessage();
                 message.setChatId(chatId.toString());
-                message.setText("❌ Сначала отправьте username ассистента.");
-                message.setReplyMarkup(createAdminMenuKeyboard());
+                message.setText(i18nService.get(languageCode, "admin.error.assistant_username_first"));
+                message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
                 messages.add(message);
-                callbackAnswer = "❌ Нет username";
+                callbackAnswer = i18nService.get(languageCode, "admin.callback.no_username");
             } else {
                 AssistantType type = parseAssistantType(typeCode);
                 if (type == null) {
                     SendMessage message = new SendMessage();
                     message.setChatId(chatId.toString());
-                    message.setText("❌ Некорректный тип ассистента.");
-                    message.setReplyMarkup(createAdminMenuKeyboard());
+                    message.setText(i18nService.get(languageCode, "admin.error.assistant_type_invalid"));
+                    message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
                     messages.add(message);
-                    callbackAnswer = "❌ Некорректный тип";
+                    callbackAnswer = i18nService.get(languageCode, "admin.callback.invalid_type");
                 } else {
-                    messages.add(buildAddAssistantMessage(chatId, targetUsername, type));
-                    callbackAnswer = "✅ Ассистент добавлен";
+                    messages.add(buildAddAssistantMessage(chatId, targetUsername, type, languageCode));
+                    callbackAnswer = i18nService.get(languageCode, "admin.callback.assistant_added");
                 }
             }
         } else if (data != null && data.startsWith("add_admin:")) {
             String targetUsername = data.substring("add_admin:".length());
-            messages.add(buildAddAdminCallbackMessage(chatId, username, targetUsername));
-            callbackAnswer = "✅ Администратор добавлен";
+            messages.add(buildAddAdminCallbackMessage(chatId, username, targetUsername, languageCode));
+            callbackAnswer = i18nService.get(languageCode, "admin.callback.admin_added");
         } else {
-            callbackAnswer = "❌ Неизвестная команда";
+            callbackAnswer = i18nService.get(languageCode, "common.unknown_command");
         }
 
         return new AdminMenuResult(messages, callbackAnswer);
@@ -383,6 +387,7 @@ public class AdminMenuService {
         Long userId = update.getMessage().getFrom().getId();
         String username = update.getMessage().getFrom().getUserName();
         Long chatId = update.getMessage().getChatId();
+        String languageCode = update.getMessage().getFrom().getLanguageCode();
 
         if (username == null || !adminService.isAdmin(username)) {
             return AdminTextResult.notHandled();
@@ -391,13 +396,13 @@ public class AdminMenuService {
         List<SendMessage> messages = new ArrayList<>();
 
         if (waitingForAdminUsername.getOrDefault(userId, false)) {
-            messages.add(buildAddAdminUsernameMessage(chatId, username, messageText));
+            messages.add(buildAddAdminUsernameMessage(chatId, username, messageText, languageCode));
             waitingForAdminUsername.remove(userId);
             return AdminTextResult.handled(messages);
         }
 
         if (waitingForRemoveAdminUsername.getOrDefault(userId, false)) {
-            messages.add(buildRemoveAdminUsernameMessage(chatId, username, messageText));
+            messages.add(buildRemoveAdminUsernameMessage(chatId, username, messageText, languageCode));
             waitingForRemoveAdminUsername.remove(userId);
             return AdminTextResult.handled(messages);
         }
@@ -405,13 +410,13 @@ public class AdminMenuService {
         if (waitingForAssistantUsername.getOrDefault(userId, false)) {
             String targetUsername = messageText.trim();
             pendingAssistantUsername.put(userId, targetUsername);
-            messages.add(buildAssistantTypeSelectionMessage(chatId, targetUsername));
+            messages.add(buildAssistantTypeSelectionMessage(chatId, targetUsername, languageCode));
             waitingForAssistantUsername.remove(userId);
             return AdminTextResult.handled(messages);
         }
 
         if (waitingForRemoveAssistantUsername.getOrDefault(userId, false)) {
-            messages.add(buildRemoveAssistantUsernameMessage(chatId, messageText));
+            messages.add(buildRemoveAssistantUsernameMessage(chatId, messageText, languageCode));
             waitingForRemoveAssistantUsername.remove(userId);
             return AdminTextResult.handled(messages);
         }
@@ -420,6 +425,10 @@ public class AdminMenuService {
     }
 
     public List<SendMessage> buildStatisticsMessages(Long chatId) {
+        return buildStatisticsMessages(chatId, "ru");
+    }
+
+    public List<SendMessage> buildStatisticsMessages(Long chatId, String languageCode) {
         String statistics = statisticsService.formatStatistics();
         final int MAX_LENGTH = 4000;
 
@@ -430,7 +439,7 @@ public class AdminMenuService {
             message.setChatId(chatId.toString());
             message.setText("```\n" + statistics + "\n```");
             message.setParseMode("Markdown");
-            message.setReplyMarkup(createAdminKeyboard());
+            message.setReplyMarkup(createAdminKeyboard(languageCode));
             result.add(message);
             return result;
         }
@@ -446,7 +455,7 @@ public class AdminMenuService {
             message.setParseMode("Markdown");
 
             if (endIndex >= statistics.length()) {
-                message.setReplyMarkup(createAdminKeyboard());
+                message.setReplyMarkup(createAdminKeyboard(languageCode));
             }
 
             result.add(message);
@@ -456,26 +465,26 @@ public class AdminMenuService {
         return result;
     }
 
-    private SendMessage buildListAdminsMessage(Long chatId) {
+    private SendMessage buildListAdminsMessage(Long chatId, String languageCode) {
         List<com.example.m1nd.model.Admin> admins = adminService.getAllAdmins();
 
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
 
         if (admins.isEmpty()) {
-            message.setText("📋 Список администраторов пуст.");
+            message.setText(i18nService.get(languageCode, "admin.list.admins.empty"));
         } else {
             StringBuilder sb = new StringBuilder();
-            sb.append("📋 Список администраторов (").append(admins.size()).append("):\n\n");
+            sb.append(i18nService.get(languageCode, "admin.list.admins.title", admins.size())).append("\n\n");
 
             for (int i = 0; i < admins.size(); i++) {
                 com.example.m1nd.model.Admin admin = admins.get(i);
                 sb.append(i + 1).append(". ").append(admin.getUsername());
                 if (admin.getAddedAt() != null) {
-                    sb.append("\n   Добавлен: ").append(admin.getAddedAt().toLocalDate());
+                    sb.append("\n   ").append(i18nService.get(languageCode, "admin.list.added")).append(": ").append(admin.getAddedAt().toLocalDate());
                 }
                 if (admin.getAddedBy() != null && !admin.getAddedBy().equals("system")) {
-                    sb.append("\n   Добавил: ").append(admin.getAddedBy());
+                    sb.append("\n   ").append(i18nService.get(languageCode, "admin.list.added_by")).append(": ").append(admin.getAddedBy());
                 }
                 sb.append("\n\n");
             }
@@ -483,21 +492,21 @@ public class AdminMenuService {
             message.setText(sb.toString());
         }
 
-        message.setReplyMarkup(createAdminMenuKeyboard());
+        message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
         return message;
     }
 
-    private SendMessage buildListAssistantsMessage(Long chatId) {
+    private SendMessage buildListAssistantsMessage(Long chatId, String languageCode) {
         List<com.example.m1nd.model.Assistant> assistants = assistantService.getActiveAssistants();
 
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
 
         if (assistants.isEmpty()) {
-            message.setText("📋 Активных ассистентов бизнеса пока нет.");
+            message.setText(i18nService.get(languageCode, "admin.list.assistants.empty"));
         } else {
             StringBuilder sb = new StringBuilder();
-            sb.append("📋 Активные ассистенты бизнеса (").append(assistants.size()).append("):\n\n");
+            sb.append(i18nService.get(languageCode, "admin.list.assistants.title", assistants.size())).append("\n\n");
 
             for (int i = 0; i < assistants.size(); i++) {
                 com.example.m1nd.model.Assistant a = assistants.get(i);
@@ -507,53 +516,55 @@ public class AdminMenuService {
                 } else {
                     sb.append("ID: ").append(a.getTelegramUserId());
                 }
-                sb.append("\n   Тип: ").append(typeTitle(a.getType())).append("\n");
+                sb.append("\n   ").append(i18nService.get(languageCode, "admin.list.type")).append(": ").append(typeTitle(a.getType(), languageCode)).append("\n");
             }
 
             message.setText(sb.toString());
         }
 
-        message.setReplyMarkup(createAdminMenuKeyboard());
+        message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
         return message;
     }
 
-    private List<SendMessage> buildFeedbacksMessages(Long chatId) {
+    private List<SendMessage> buildFeedbacksMessages(Long chatId, String languageCode) {
         List<com.example.m1nd.model.Feedback> feedbacks = feedbackService.getRecentFeedbacks(30);
         List<SendMessage> result = new ArrayList<>();
 
         if (feedbacks.isEmpty()) {
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
-            message.setText("📝 Опросов пока нет.");
-            message.setReplyMarkup(createAdminMenuKeyboard());
+            message.setText(i18nService.get(languageCode, "admin.feedbacks.empty"));
+            message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
             result.add(message);
             return result;
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append("📝 Опросы пользователей (последние 30 дней):\n\n");
+        sb.append(i18nService.get(languageCode, "admin.feedbacks.title")).append("\n\n");
 
         for (com.example.m1nd.model.Feedback feedback : feedbacks) {
             sb.append("👤 ").append(feedback.getUsername() != null ? feedback.getUsername() : feedback.getFirstName())
               .append(" (").append(feedback.getUserId()).append(")\n");
 
             if (feedback.getRating() != null) {
-                sb.append("⭐ Оценка: ").append(feedback.getRating()).append("/10\n");
+                sb.append(i18nService.get(languageCode, "admin.feedbacks.rating")).append(": ").append(feedback.getRating()).append("/10\n");
             }
 
             if (feedback.getWasUseful() != null) {
-                sb.append("💡 Полезно: ").append(feedback.getWasUseful() ? "Да" : "Нет").append("\n");
+                sb.append(i18nService.get(languageCode, "admin.feedbacks.useful")).append(": ")
+                    .append(feedback.getWasUseful() ? i18nService.get(languageCode, "common.yes") : i18nService.get(languageCode, "common.no"))
+                    .append("\n");
             }
 
             if (feedback.getComment() != null && !feedback.getComment().isEmpty()) {
-                sb.append("💭 Комментарий: ").append(feedback.getComment()).append("\n");
+                sb.append(i18nService.get(languageCode, "admin.feedbacks.comment")).append(": ").append(feedback.getComment()).append("\n");
             }
 
             if (feedback.getQuestion() != null && !feedback.getQuestion().isEmpty()) {
                 String questionPreview = feedback.getQuestion().length() > 50
                     ? feedback.getQuestion().substring(0, 50) + "..."
                     : feedback.getQuestion();
-                sb.append("❓ Вопрос: ").append(questionPreview).append("\n");
+                sb.append(i18nService.get(languageCode, "admin.feedbacks.question")).append(": ").append(questionPreview).append("\n");
             }
 
             sb.append("📅 ").append(feedback.getCreatedAt().toLocalDate()).append("\n\n");
@@ -562,16 +573,16 @@ public class AdminMenuService {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
         message.setText(sb.toString());
-        message.setReplyMarkup(createAdminMenuKeyboard());
+        message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
         result.add(message);
 
         return result;
     }
 
-    private SendMessage buildActivityDateSelectionMessage(Long chatId) {
+    private SendMessage buildActivityDateSelectionMessage(Long chatId, String languageCode) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText("📅 Выберите дату для просмотра активности:");
+        message.setText(i18nService.get(languageCode, "admin.activity.choose_date"));
 
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
@@ -580,8 +591,8 @@ public class AdminMenuService {
         for (int i = 0; i < 7; i++) {
             java.time.LocalDate date = today.minusDays(i);
             String dateStr = date.toString();
-            String displayText = i == 0 ? "Сегодня" :
-                i == 1 ? "Вчера" :
+            String displayText = i == 0 ? i18nService.get(languageCode, "admin.activity.today") :
+                i == 1 ? i18nService.get(languageCode, "admin.activity.yesterday") :
                     date.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM"));
 
             InlineKeyboardButton button = new InlineKeyboardButton();
@@ -594,7 +605,7 @@ public class AdminMenuService {
         }
 
         InlineKeyboardButton backButton = new InlineKeyboardButton();
-        backButton.setText("◀️ Назад");
+        backButton.setText(i18nService.get(languageCode, "menu.option.back"));
         backButton.setCallbackData("admin_menu");
         List<InlineKeyboardButton> backRow = new ArrayList<>();
         backRow.add(backButton);
@@ -606,7 +617,7 @@ public class AdminMenuService {
         return message;
     }
 
-    private List<SendMessage> buildActivityUsersForDateMessages(Long chatId, String dateStr) {
+    private List<SendMessage> buildActivityUsersForDateMessages(Long chatId, String dateStr, String languageCode) {
         List<SendMessage> result = new ArrayList<>();
         try {
             java.time.LocalDate date = java.time.LocalDate.parse(dateStr);
@@ -615,15 +626,15 @@ public class AdminMenuService {
             if (users.isEmpty()) {
                 SendMessage message = new SendMessage();
                 message.setChatId(chatId.toString());
-                message.setText("❌ На выбранную дату (" + dateStr + ") нет активности.");
-                message.setReplyMarkup(createAdminMenuKeyboard());
+                message.setText(i18nService.get(languageCode, "admin.activity.no_data_for_date", dateStr));
+                message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
                 result.add(message);
                 return result;
             }
 
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
-            message.setText("👥 Активные пользователи на " + dateStr + ":\n\nВыберите пользователя:");
+            message.setText(i18nService.get(languageCode, "admin.activity.users_for_date", dateStr));
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
@@ -640,7 +651,7 @@ public class AdminMenuService {
             }
 
             InlineKeyboardButton backButton = new InlineKeyboardButton();
-            backButton.setText("◀️ Назад");
+            backButton.setText(i18nService.get(languageCode, "menu.option.back"));
             backButton.setCallbackData("admin_activity");
             List<InlineKeyboardButton> backRow = new ArrayList<>();
             backRow.add(backButton);
@@ -654,14 +665,14 @@ public class AdminMenuService {
             log.error("Ошибка при обработке выбранной даты", e);
             SendMessage errorMessage = new SendMessage();
             errorMessage.setChatId(chatId.toString());
-            errorMessage.setText("❌ Ошибка: неверный формат даты. Используйте ГГГГ-ММ-ДД");
+            errorMessage.setText(i18nService.get(languageCode, "admin.activity.invalid_date"));
             result.add(errorMessage);
         }
 
         return result;
     }
 
-    private List<SendMessage> buildActivityUserSummariesMessages(Long chatId, String dateStr, Long userId) {
+    private List<SendMessage> buildActivityUserSummariesMessages(Long chatId, String dateStr, Long userId, String languageCode) {
         List<SendMessage> result = new ArrayList<>();
         try {
             java.time.LocalDate date = java.time.LocalDate.parse(dateStr);
@@ -671,14 +682,14 @@ public class AdminMenuService {
             if (summaries.isEmpty()) {
                 SendMessage message = new SendMessage();
                 message.setChatId(chatId.toString());
-                message.setText("❌ Для выбранного пользователя на эту дату нет сводок.");
-                message.setReplyMarkup(createAdminMenuKeyboard());
+                message.setText(i18nService.get(languageCode, "admin.activity.no_summaries"));
+                message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
                 result.add(message);
                 return result;
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("📊 Сводки активности пользователя ");
+            sb.append(i18nService.get(languageCode, "admin.activity.summaries_title"));
             if (summaries.get(0).getUsername() != null) {
                 sb.append("@").append(summaries.get(0).getUsername());
             } else {
@@ -689,45 +700,45 @@ public class AdminMenuService {
             for (int i = 0; i < summaries.size(); i++) {
                 com.example.m1nd.model.UserSessionSummary summary = summaries.get(i);
                 sb.append("━━━━━━━━━━━━━━━━━━━━\n");
-                sb.append("📝 Сводка #").append(i + 1).append("\n\n");
-                sb.append("❓ ВОПРОС:\n");
+                sb.append(i18nService.get(languageCode, "admin.activity.summary_item", i + 1)).append("\n\n");
+                sb.append(i18nService.get(languageCode, "admin.activity.question_label")).append("\n");
                 sb.append(summary.getSummaryQuestion()).append("\n\n");
-                sb.append("💬 ОТВЕТ:\n");
+                sb.append(i18nService.get(languageCode, "admin.activity.answer_label")).append("\n");
                 sb.append(summary.getSummaryAnswer()).append("\n\n");
             }
 
             SendMessage message = new SendMessage();
             message.setChatId(chatId.toString());
             message.setText(sb.toString());
-            message.setReplyMarkup(createAdminMenuKeyboard());
+            message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
             result.add(message);
         } catch (Exception e) {
             log.error("Ошибка при показе сводок пользователя", e);
             SendMessage errorMessage = new SendMessage();
             errorMessage.setChatId(chatId.toString());
-            errorMessage.setText("❌ Ошибка при получении сводок: " + e.getMessage());
+            errorMessage.setText(i18nService.get(languageCode, "admin.activity.summaries_error", e.getMessage()));
             result.add(errorMessage);
         }
 
         return result;
     }
 
-    private SendMessage buildAddAdminCallbackMessage(Long chatId, String currentUsername, String targetUsername) {
+    private SendMessage buildAddAdminCallbackMessage(Long chatId, String currentUsername, String targetUsername, String languageCode) {
         boolean added = adminService.addAdmin(targetUsername, currentUsername);
 
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
 
         if (added) {
-            message.setText("✅ Администратор @" + targetUsername.replace("@", "") + " успешно добавлен!");
+            message.setText(i18nService.get(languageCode, "admin.add.success", targetUsername.replace("@", "")));
         } else {
-            message.setText("❌ Не удалось добавить администратора. Возможно, он уже является администратором.");
+            message.setText(i18nService.get(languageCode, "admin.add.error"));
         }
 
         return message;
     }
 
-    private SendMessage buildAddAdminUsernameMessage(Long chatId, String currentUsername, String messageText) {
+    private SendMessage buildAddAdminUsernameMessage(Long chatId, String currentUsername, String messageText, String languageCode) {
         String targetUsername = messageText.trim();
         boolean added = adminService.addAdmin(targetUsername, currentUsername);
 
@@ -735,50 +746,50 @@ public class AdminMenuService {
         message.setChatId(chatId.toString());
 
         if (added) {
-            message.setText("✅ Администратор @" + targetUsername.replace("@", "") + " успешно добавлен!");
+            message.setText(i18nService.get(languageCode, "admin.add.success", targetUsername.replace("@", "")));
         } else {
-            message.setText("❌ Не удалось добавить администратора. Возможно, он уже является администратором.");
+            message.setText(i18nService.get(languageCode, "admin.add.error"));
         }
 
-        message.setReplyMarkup(createAdminKeyboard());
+        message.setReplyMarkup(createAdminKeyboard(languageCode));
         return message;
     }
 
-    private SendMessage buildAddAssistantMessage(Long chatId, String targetUsername, AssistantType type) {
+    private SendMessage buildAddAssistantMessage(Long chatId, String targetUsername, AssistantType type, String languageCode) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
 
         var assistantOpt = assistantService.addAssistantByUsername(targetUsername, type);
 
         if (assistantOpt.isPresent()) {
-            message.setText("✅ Ассистент бизнеса @" + targetUsername.replace("@", "") +
-                " успешно добавлен.\nТип: " + typeTitle(type));
+            message.setText(i18nService.get(languageCode, "admin.assistant.add.success",
+                targetUsername.replace("@", ""), typeTitle(type, languageCode)));
         } else {
-            message.setText("❌ Не удалось добавить ассистента. Убедитесь, что пользователь уже писал боту и username указан верно.");
+            message.setText(i18nService.get(languageCode, "admin.assistant.add.error"));
         }
 
-        message.setReplyMarkup(createAdminMenuKeyboard());
+        message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
         return message;
     }
 
-    private SendMessage buildAssistantTypeSelectionMessage(Long chatId, String targetUsername) {
+    private SendMessage buildAssistantTypeSelectionMessage(Long chatId, String targetUsername, String languageCode) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText("Выберите тип ассистента для @" + targetUsername.replace("@", "") + ":");
-        message.setReplyMarkup(createAssistantTypeKeyboard());
+        message.setText(i18nService.get(languageCode, "admin.assistant.choose_type", targetUsername.replace("@", "")));
+        message.setReplyMarkup(createAssistantTypeKeyboard(languageCode));
         return message;
     }
 
-    private InlineKeyboardMarkup createAssistantTypeKeyboard() {
+    private InlineKeyboardMarkup createAssistantTypeKeyboard(String languageCode) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
         InlineKeyboardButton messageType = new InlineKeyboardButton();
-        messageType.setText("Сообщение");
+        messageType.setText(i18nService.get(languageCode, "admin.assistant.type.message"));
         messageType.setCallbackData("assistant_type:MESSAGE");
 
         InlineKeyboardButton meetingType = new InlineKeyboardButton();
-        meetingType.setText("Встреча");
+        meetingType.setText(i18nService.get(languageCode, "admin.assistant.type.meeting"));
         meetingType.setCallbackData("assistant_type:MEETING");
 
         keyboard.add(List.of(messageType));
@@ -795,17 +806,17 @@ public class AdminMenuService {
         }
     }
 
-    private String typeTitle(AssistantType type) {
+    private String typeTitle(AssistantType type, String languageCode) {
         if (type == null) {
-            return "Не указан";
+            return i18nService.get(languageCode, "admin.assistant.type.unknown");
         }
         return switch (type) {
-            case MESSAGE -> "Сообщение";
-            case MEETING -> "Встреча";
+            case MESSAGE -> i18nService.get(languageCode, "admin.assistant.type.message");
+            case MEETING -> i18nService.get(languageCode, "admin.assistant.type.meeting");
         };
     }
 
-    private SendMessage buildRemoveAdminUsernameMessage(Long chatId, String currentUsername, String messageText) {
+    private SendMessage buildRemoveAdminUsernameMessage(Long chatId, String currentUsername, String messageText, String languageCode) {
         String targetUsername = messageText.trim();
 
         String cleanTargetUsername = targetUsername.startsWith("@") ? targetUsername.substring(1) : targetUsername;
@@ -817,24 +828,24 @@ public class AdminMenuService {
         message.setChatId(chatId.toString());
 
         if (cleanTargetUsername.equalsIgnoreCase(cleanCurrentUsername)) {
-            message.setText("❌ Вы не можете удалить самого себя из администраторов.");
-            message.setReplyMarkup(createAdminMenuKeyboard());
+            message.setText(i18nService.get(languageCode, "admin.remove.self_error"));
+            message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
             return message;
         }
 
         boolean removed = adminService.removeAdmin(targetUsername);
 
         if (removed) {
-            message.setText("✅ Администратор @" + targetUsername.replace("@", "") + " успешно удален!");
+            message.setText(i18nService.get(languageCode, "admin.remove.success", targetUsername.replace("@", "")));
         } else {
-            message.setText("❌ Не удалось удалить администратора. Возможно, он не найден в списке.");
+            message.setText(i18nService.get(languageCode, "admin.remove.error"));
         }
 
-        message.setReplyMarkup(createAdminKeyboard());
+        message.setReplyMarkup(createAdminKeyboard(languageCode));
         return message;
     }
 
-    private SendMessage buildRemoveAssistantUsernameMessage(Long chatId, String messageText) {
+    private SendMessage buildRemoveAssistantUsernameMessage(Long chatId, String messageText, String languageCode) {
         String targetUsername = messageText.trim();
 
         SendMessage message = new SendMessage();
@@ -843,12 +854,12 @@ public class AdminMenuService {
         boolean removed = assistantService.deactivateAssistantByUsername(targetUsername);
 
         if (removed) {
-            message.setText("✅ Ассистент бизнеса @" + targetUsername.replace("@", "") + " отключён.");
+            message.setText(i18nService.get(languageCode, "admin.assistant.remove.success", targetUsername.replace("@", "")));
         } else {
-            message.setText("❌ Не удалось отключить ассистента. Возможно, он не найден среди активных.");
+            message.setText(i18nService.get(languageCode, "admin.assistant.remove.error"));
         }
 
-        message.setReplyMarkup(createAdminMenuKeyboard());
+        message.setReplyMarkup(createAdminMenuKeyboard(languageCode));
         return message;
     }
 

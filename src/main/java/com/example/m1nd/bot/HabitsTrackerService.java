@@ -4,6 +4,7 @@ import com.example.m1nd.model.HabitDailyTask;
 import com.example.m1nd.model.HabitTrackerEntry;
 import com.example.m1nd.repository.HabitDailyTaskRepository;
 import com.example.m1nd.repository.HabitTrackerEntryRepository;
+import com.example.m1nd.service.I18nService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -22,15 +23,9 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 @RequiredArgsConstructor
 public class HabitsTrackerService {
-    private static final String AREA_HEALTH = "Здоровье";
-    private static final String AREA_PRODUCTIVITY = "Продуктивность";
-    private static final String AREA_MENTAL = "Ментал";
-    private static final String AREA_STUDY = "Учёба";
-    private static final String AREA_FINANCE = "Финансы";
-    private static final String AREA_CUSTOM = "Свое";
-
     private final HabitTrackerEntryRepository habitTrackerEntryRepository;
     private final HabitDailyTaskRepository habitDailyTaskRepository;
+    private final I18nService i18nService;
 
     private final Map<Long, HabitDraft> habitDraftByUser = new ConcurrentHashMap<>();
 
@@ -50,32 +45,33 @@ public class HabitsTrackerService {
         String data = callbackQuery.getData();
         Long userId = callbackQuery.getFrom().getId();
         Long chatId = callbackQuery.getMessage().getChatId();
+        String languageCode = callbackQuery.getFrom().getLanguageCode();
 
         if ("main_habits_tracker".equals(data)) {
-            return openHabitsTracker(chatId, userId);
+            return openHabitsTracker(chatId, userId, languageCode);
         }
         if ("habits_add".equals(data)) {
             habitDraftByUser.remove(userId);
-            return CallbackResult.single(buildAreaSelectionMessage(chatId), "✅");
+            return CallbackResult.single(buildAreaSelectionMessage(chatId, languageCode), "✅");
         }
         if ("habits_delete".equals(data)) {
-            return CallbackResult.single(buildDeleteMenuMessage(chatId, userId), "✅");
+            return CallbackResult.single(buildDeleteMenuMessage(chatId, userId, languageCode), "✅");
         }
         if ("habits_back_main".equals(data)) {
             habitDraftByUser.remove(userId);
-            return CallbackResult.single(buildMainMenuMessage(chatId), "✅");
+            return CallbackResult.single(buildMainMenuMessage(chatId, languageCode), "✅");
         }
         if (data.startsWith("habits_category:")) {
-            return onCategorySelected(chatId, userId, data.substring("habits_category:".length()));
+            return onCategorySelected(chatId, userId, data.substring("habits_category:".length()), languageCode);
         }
         if (data.startsWith("habits_delete_entry:")) {
-            return onDeleteEntry(chatId, userId, data.substring("habits_delete_entry:".length()));
+            return onDeleteEntry(chatId, userId, data.substring("habits_delete_entry:".length()), languageCode);
         }
         if (data.startsWith("habits_task_reminder:")) {
-            return onTaskReminderSelected(chatId, userId, data.substring("habits_task_reminder:".length()));
+            return onTaskReminderSelected(chatId, userId, data.substring("habits_task_reminder:".length()), languageCode);
         }
 
-        return CallbackResult.single(simpleMessage(chatId, "Раздел в разработке."), "✅");
+        return CallbackResult.single(simpleMessage(chatId, i18nService.get(languageCode, "common.in_development")), "✅");
     }
 
     public TextResult handleText(Long chatId, Long userId, String messageText) {
@@ -89,7 +85,7 @@ public class HabitsTrackerService {
             draft.stage = Stage.WAIT_DURATION;
             return TextResult.handled(singleMessage(
                 chatId,
-                "В течение какого времени хочешь это делать? (например, 21 день)"
+                i18nService.get(draft.languageCode, "habits.question.duration")
             ));
         }
 
@@ -98,7 +94,7 @@ public class HabitsTrackerService {
             draft.stage = Stage.WAIT_FREQUENCY;
             return TextResult.handled(singleMessage(
                 chatId,
-                "Со скольки раз в неделю/день тебе удобно начинать?"
+                i18nService.get(draft.languageCode, "habits.question.frequency")
             ));
         }
 
@@ -109,7 +105,7 @@ public class HabitsTrackerService {
 
             return TextResult.handled(singleMessage(
                 chatId,
-                "Отлично! Привычка сохранена.\n\nЗадание на сегодня:"
+                i18nService.get(draft.languageCode, "habits.saved.ask_task")
             ));
         }
 
@@ -118,41 +114,42 @@ public class HabitsTrackerService {
             draft.stage = Stage.WAIT_REMINDER_CHOICE;
             return TextResult.handled(singleMessageWithMarkup(
                 chatId,
-                "Напомнить вечером отчитаться?",
-                createReminderChoiceKeyboard()
+                i18nService.get(draft.languageCode, "habits.question.reminder"),
+                createReminderChoiceKeyboard(draft.languageCode)
             ));
         }
 
         return TextResult.notHandled();
     }
 
-    private CallbackResult openHabitsTracker(Long chatId, Long userId) {
+    private CallbackResult openHabitsTracker(Long chatId, Long userId, String languageCode) {
         habitDraftByUser.remove(userId);
         cleanupExpiredTasks();
         List<HabitTrackerEntry> habits = habitTrackerEntryRepository.findByUserIdOrderByCreatedAtDesc(userId);
         if (habits.isEmpty()) {
-            return CallbackResult.single(buildAreaSelectionMessage(chatId), "✅");
+            return CallbackResult.single(buildAreaSelectionMessage(chatId, languageCode), "✅");
         }
-        return CallbackResult.single(buildHabitsOverviewMessage(chatId, userId), "✅");
+        return CallbackResult.single(buildHabitsOverviewMessage(chatId, userId, languageCode), "✅");
     }
 
-    private CallbackResult onCategorySelected(Long chatId, Long userId, String categoryCode) {
+    private CallbackResult onCategorySelected(Long chatId, Long userId, String categoryCode, String languageCode) {
         HabitDraft draft = new HabitDraft();
+        draft.languageCode = languageCode;
         draft.habitArea = switch (categoryCode) {
-            case "health" -> AREA_HEALTH;
-            case "productivity" -> AREA_PRODUCTIVITY;
-            case "mental" -> AREA_MENTAL;
-            case "study" -> AREA_STUDY;
-            case "finance" -> AREA_FINANCE;
-            case "custom" -> AREA_CUSTOM;
-            default -> AREA_CUSTOM;
+            case "health" -> i18nService.get(languageCode, "habits.area.health");
+            case "productivity" -> i18nService.get(languageCode, "habits.area.productivity");
+            case "mental" -> i18nService.get(languageCode, "habits.area.mental");
+            case "study" -> i18nService.get(languageCode, "habits.area.study");
+            case "finance" -> i18nService.get(languageCode, "habits.area.finance");
+            case "custom" -> i18nService.get(languageCode, "habits.area.custom");
+            default -> i18nService.get(languageCode, "habits.area.custom");
         };
 
         if ("custom".equals(categoryCode)) {
             draft.stage = Stage.WAIT_CUSTOM_NAME;
             habitDraftByUser.put(userId, draft);
             return CallbackResult.single(
-                simpleMessage(chatId, "Какую привычку ты хочешь сформировать?"),
+                simpleMessage(chatId, i18nService.get(languageCode, "habits.question.custom_name")),
                 "✅"
             );
         }
@@ -161,29 +158,29 @@ public class HabitsTrackerService {
         draft.stage = Stage.WAIT_DURATION;
         habitDraftByUser.put(userId, draft);
         return CallbackResult.single(
-            simpleMessage(chatId, "В течение какого времени хочешь это делать? (например, 21 день)"),
+            simpleMessage(chatId, i18nService.get(languageCode, "habits.question.duration")),
             "✅"
         );
     }
 
-    private CallbackResult onDeleteEntry(Long chatId, Long userId, String idPart) {
+    private CallbackResult onDeleteEntry(Long chatId, Long userId, String idPart, String languageCode) {
         try {
             Long id = Long.parseLong(idPart);
             Optional<HabitTrackerEntry> entryOpt = habitTrackerEntryRepository.findById(id);
             if (entryOpt.isPresent() && userId.equals(entryOpt.get().getUserId())) {
                 habitTrackerEntryRepository.deleteById(id);
-                return CallbackResult.single(buildHabitsOverviewMessage(chatId, userId), "✅ Удалено");
+                return CallbackResult.single(buildHabitsOverviewMessage(chatId, userId, languageCode), "✅");
             }
-            return CallbackResult.single(simpleMessage(chatId, "Привычка не найдена."), "⚠️");
+            return CallbackResult.single(simpleMessage(chatId, i18nService.get(languageCode, "habits.not_found")), "⚠️");
         } catch (NumberFormatException ex) {
-            return CallbackResult.single(simpleMessage(chatId, "Некорректный идентификатор привычки."), "⚠️");
+            return CallbackResult.single(simpleMessage(chatId, i18nService.get(languageCode, "habits.invalid_id")), "⚠️");
         }
     }
 
-    private CallbackResult onTaskReminderSelected(Long chatId, Long userId, String answerCode) {
+    private CallbackResult onTaskReminderSelected(Long chatId, Long userId, String answerCode, String languageCode) {
         HabitDraft draft = habitDraftByUser.get(userId);
         if (draft == null || draft.stage != Stage.WAIT_REMINDER_CHOICE || draft.todayTask == null) {
-            return CallbackResult.single(simpleMessage(chatId, "Давай начнем заново через меню трекера привычек."), "⚠️");
+            return CallbackResult.single(simpleMessage(chatId, i18nService.get(languageCode, "habits.restart")), "⚠️");
         }
 
         boolean remindEvening = "yes".equalsIgnoreCase(answerCode);
@@ -191,26 +188,23 @@ public class HabitsTrackerService {
         habitDraftByUser.remove(userId);
 
         List<SendMessage> messages = new ArrayList<>();
-        messages.add(simpleMessage(chatId, "Готово! Задание на сегодня сохранено."));
-        messages.add(buildHabitsOverviewMessage(chatId, userId));
+        messages.add(simpleMessage(chatId, i18nService.get(languageCode, "habits.task_saved")));
+        messages.add(buildHabitsOverviewMessage(chatId, userId, languageCode));
         return new CallbackResult(messages, "✅");
     }
 
-    private SendMessage buildAreaSelectionMessage(Long chatId) {
+    private SendMessage buildAreaSelectionMessage(Long chatId, String languageCode) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText(
-            "Привет! Я — твой личный трекер привычек. Помогу выработать новые полезные привычки!\n\n" +
-            "Выбери направление, над которым хочешь работать:"
-        );
-        message.setReplyMarkup(createAreaSelectionKeyboard());
+        message.setText(i18nService.get(languageCode, "habits.greeting"));
+        message.setReplyMarkup(createAreaSelectionKeyboard(languageCode));
         return message;
     }
 
-    private SendMessage buildHabitsOverviewMessage(Long chatId, Long userId) {
+    private SendMessage buildHabitsOverviewMessage(Long chatId, Long userId, String languageCode) {
         cleanupExpiredTasks();
         List<HabitTrackerEntry> habits = habitTrackerEntryRepository.findByUserIdOrderByCreatedAtDesc(userId);
-        StringBuilder text = new StringBuilder("Твои привычки:\n\n");
+        StringBuilder text = new StringBuilder(i18nService.get(languageCode, "habits.list.title")).append("\n\n");
         int index = 1;
         for (HabitTrackerEntry habit : habits) {
             text.append(index++)
@@ -219,91 +213,97 @@ public class HabitsTrackerService {
                 .append(" (")
                 .append(habit.getHabitArea())
                 .append(")\n")
-                .append("   Срок: ")
+                .append("   ")
+                .append(i18nService.get(languageCode, "habits.list.duration"))
+                .append(": ")
                 .append(habit.getDurationPlan())
                 .append("\n")
-                .append("   Частота: ")
+                .append("   ")
+                .append(i18nService.get(languageCode, "habits.list.frequency"))
+                .append(": ")
                 .append(habit.getFrequencyPlan())
                 .append("\n\n");
         }
 
         habitDailyTaskRepository.findTopByUserIdAndTaskDateOrderByCreatedAtDesc(userId, LocalDate.now())
-            .ifPresent(task -> text.append("Задание на сегодня:\n")
+            .ifPresent(task -> text.append(i18nService.get(languageCode, "habits.today_task.title")).append("\n")
                 .append(task.getTaskText())
                 .append("\n")
-                .append("Напоминание вечером: ")
-                .append(Boolean.TRUE.equals(task.getRemindEvening()) ? "Да" : "Нет"));
+                .append(i18nService.get(languageCode, "habits.today_task.reminder"))
+                .append(Boolean.TRUE.equals(task.getRemindEvening())
+                    ? i18nService.get(languageCode, "common.yes")
+                    : i18nService.get(languageCode, "common.no")));
 
         SendMessage message = simpleMessage(chatId, text.toString().trim());
-        message.setReplyMarkup(createOverviewKeyboard());
+        message.setReplyMarkup(createOverviewKeyboard(languageCode));
         return message;
     }
 
-    private SendMessage buildDeleteMenuMessage(Long chatId, Long userId) {
+    private SendMessage buildDeleteMenuMessage(Long chatId, Long userId, String languageCode) {
         List<HabitTrackerEntry> habits = habitTrackerEntryRepository.findByUserIdOrderByCreatedAtDesc(userId);
         if (habits.isEmpty()) {
-            SendMessage message = simpleMessage(chatId, "У тебя пока нет привычек для удаления.");
-            message.setReplyMarkup(createOverviewKeyboard());
+            SendMessage message = simpleMessage(chatId, i18nService.get(languageCode, "habits.delete.none"));
+            message.setReplyMarkup(createOverviewKeyboard(languageCode));
             return message;
         }
 
-        SendMessage message = simpleMessage(chatId, "Выбери привычку, которую нужно удалить:");
-        message.setReplyMarkup(createDeleteKeyboard(habits));
+        SendMessage message = simpleMessage(chatId, i18nService.get(languageCode, "habits.delete.choose"));
+        message.setReplyMarkup(createDeleteKeyboard(habits, languageCode));
         return message;
     }
 
-    private SendMessage buildMainMenuMessage(Long chatId) {
+    private SendMessage buildMainMenuMessage(Long chatId, String languageCode) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText("Выберите ассистента:");
-        message.setReplyMarkup(createMainMenuKeyboard());
+        message.setText(i18nService.get(languageCode, "menu.main.choose_assistant"));
+        message.setReplyMarkup(createMainMenuKeyboard(languageCode));
         return message;
     }
 
-    private InlineKeyboardMarkup createAreaSelectionKeyboard() {
+    private InlineKeyboardMarkup createAreaSelectionKeyboard(String languageCode) {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-        keyboard.add(List.of(button("1️⃣ Здоровье", "habits_category:health")));
-        keyboard.add(List.of(button("2️⃣ Продуктивность", "habits_category:productivity")));
-        keyboard.add(List.of(button("3️⃣ Ментал", "habits_category:mental")));
-        keyboard.add(List.of(button("4️⃣ Учёба", "habits_category:study")));
-        keyboard.add(List.of(button("5️⃣ Финансы", "habits_category:finance")));
-        keyboard.add(List.of(button("6️⃣ Свое", "habits_category:custom")));
-        keyboard.add(List.of(button("◀️ Назад", "habits_back_main")));
+        keyboard.add(List.of(button("1️⃣ " + i18nService.get(languageCode, "habits.area.health"), "habits_category:health")));
+        keyboard.add(List.of(button("2️⃣ " + i18nService.get(languageCode, "habits.area.productivity"), "habits_category:productivity")));
+        keyboard.add(List.of(button("3️⃣ " + i18nService.get(languageCode, "habits.area.mental"), "habits_category:mental")));
+        keyboard.add(List.of(button("4️⃣ " + i18nService.get(languageCode, "habits.area.study"), "habits_category:study")));
+        keyboard.add(List.of(button("5️⃣ " + i18nService.get(languageCode, "habits.area.finance"), "habits_category:finance")));
+        keyboard.add(List.of(button("6️⃣ " + i18nService.get(languageCode, "habits.area.custom"), "habits_category:custom")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "menu.option.back"), "habits_back_main")));
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(keyboard);
         return markup;
     }
 
-    private InlineKeyboardMarkup createOverviewKeyboard() {
+    private InlineKeyboardMarkup createOverviewKeyboard(String languageCode) {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-        keyboard.add(List.of(button("➕ Добавить привычку", "habits_add")));
-        keyboard.add(List.of(button("🗑 Удалить привычку", "habits_delete")));
-        keyboard.add(List.of(button("◀️ Назад", "habits_back_main")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "habits.add"), "habits_add")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "habits.delete"), "habits_delete")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "menu.option.back"), "habits_back_main")));
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(keyboard);
         return markup;
     }
 
-    private InlineKeyboardMarkup createDeleteKeyboard(List<HabitTrackerEntry> habits) {
+    private InlineKeyboardMarkup createDeleteKeyboard(List<HabitTrackerEntry> habits, String languageCode) {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
         for (HabitTrackerEntry habit : habits) {
             keyboard.add(List.of(button(
-                "Удалить: " + habit.getHabitName(),
+                i18nService.get(languageCode, "habits.delete.item", habit.getHabitName()),
                 "habits_delete_entry:" + habit.getId()
             )));
         }
-        keyboard.add(List.of(button("◀️ Назад", "main_habits_tracker")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "menu.option.back"), "main_habits_tracker")));
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(keyboard);
         return markup;
     }
 
-    private InlineKeyboardMarkup createMainMenuKeyboard() {
+    private InlineKeyboardMarkup createMainMenuKeyboard(String languageCode) {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-        keyboard.add(List.of(button("Бизнес ассистент", "main_business_ai_assistant")));
-        keyboard.add(List.of(button("Финансовый ассистент", "main_financial_ai_assistant")));
-        keyboard.add(List.of(button("Ассистент по мышлению", "main_thinking_ai_assistant")));
-        keyboard.add(List.of(button("Трекер привычек", "main_habits_tracker")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "menu.main.business"), "main_business_ai_assistant")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "menu.main.financial"), "main_financial_ai_assistant")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "menu.main.thinking"), "main_thinking_ai_assistant")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "menu.main.habits"), "main_habits_tracker")));
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(keyboard);
         return markup;
@@ -366,9 +366,10 @@ public class HabitsTrackerService {
         return button;
     }
 
-    private InlineKeyboardMarkup createReminderChoiceKeyboard() {
+    private InlineKeyboardMarkup createReminderChoiceKeyboard(String languageCode) {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-        keyboard.add(List.of(button("Да", "habits_task_reminder:yes"), button("Нет", "habits_task_reminder:no")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "common.yes"), "habits_task_reminder:yes"),
+            button(i18nService.get(languageCode, "common.no"), "habits_task_reminder:no")));
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(keyboard);
         return markup;
@@ -390,6 +391,7 @@ public class HabitsTrackerService {
         private String frequencyPlan;
         private String todayTask;
         private Long savedEntryId;
+        private String languageCode;
     }
 
     public static class CallbackResult {

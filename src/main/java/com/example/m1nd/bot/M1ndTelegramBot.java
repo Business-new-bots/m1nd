@@ -6,6 +6,7 @@ import com.example.m1nd.service.AdminService;
 import com.example.m1nd.service.AssistantPromptContextService;
 import com.example.m1nd.service.AssistantService;
 import com.example.m1nd.service.FeedbackService;
+import com.example.m1nd.service.I18nService;
 import com.example.m1nd.service.LLMService;
 import com.example.m1nd.service.SummaryService;
 import com.example.m1nd.service.UserService;
@@ -63,6 +64,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private final MainMenuService mainMenuService;
     private final AdminMenuService adminMenuService;
     private final HabitsTrackerService habitsTrackerService;
+    private final I18nService i18nService;
     
     @Value("${llm.api.use-llm-service:true}")
     private boolean useLlmService;
@@ -201,7 +203,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     || "меню".equalsIgnoreCase(messageText)) {
                 logger.info("Обработка команды /menu");
                 Long chatId = update.getMessage().getChatId();
-                SendMessage menuMessage = mainMenuService.buildMainMenuMessage(chatId);
+                String languageCode = update.getMessage().getFrom().getLanguageCode();
+                SendMessage menuMessage = mainMenuService.buildMainMenuMessage(chatId, languageCode);
                 try {
                     execute(menuMessage);
                 } catch (TelegramApiException e) {
@@ -283,6 +286,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         Long chatId = update.getMessage().getChatId();
         Long userId = update.getMessage().getFrom().getId();
         String username = update.getMessage().getFrom().getUserName();
+        String languageCode = update.getMessage().getFrom().getLanguageCode();
 
         // На /start сбрасываем активную Human Expert встречу (если была).
         clearActiveMeetingState(userId);
@@ -292,13 +296,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText(
-            "Добро пожаловать в ваш личный помощник по решению задач.\n\n" +
-            "Чем могу помочь? Для вашего удобства доступны два формата поддержки:\n\n" +
-            "AI Assistant — молниеносная скорость и точность от ИИ-асситентов.\n" +
-            "Human Expert — индивидуальный подход и экспертиза от реальных специалистов.\n\n" +
-            "Напишите суть вопроса, и я порекомендую, кто справится с ним лучше: нейросеть или живой профессионал."
-        );
+        message.setText(i18nService.get(languageCode, "start.welcome.text"));
         
         // Если пользователь администратор - добавляем кнопки
         if (username != null) {
@@ -317,7 +315,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             sendWelcomeVideo(chatId);
 
             // Сразу показываем меню выбора из 3 ассистентов
-            SendMessage menuMessage = mainMenuService.buildMainMenuMessage(chatId);
+            SendMessage menuMessage = mainMenuService.buildMainMenuMessage(chatId, languageCode);
             execute(menuMessage);
         } catch (TelegramApiException e) {
             logger.error("Ошибка при отправке сообщения", e);
@@ -398,6 +396,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         Long chatId = update.getMessage().getChatId();
         Long userId = update.getMessage().getFrom().getId();
         String modeCode = assistantPromptContextService.getMode(userId);
+        String languageCode = update.getMessage().getFrom().getLanguageCode();
         
         // Отслеживаем активность пользователя
         userService.trackUserActivity(userId);
@@ -410,8 +409,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         processingMessage.setChatId(chatId.toString());
         boolean isHumanExpert = modeCode != null && ("question".equals(modeCode) || "meeting".equals(modeCode));
         processingMessage.setText(isHumanExpert
-            ? "Отправляю запрос специалисту..."
-            : "Обрабатываю ваш вопрос...");
+            ? i18nService.get(languageCode, "question.processing.expert")
+            : i18nService.get(languageCode, "question.processing.default"));
         
         try {
             execute(processingMessage);
@@ -421,7 +420,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
 
         // Human Expert: напрямую маршрутизируем вопрос в чат активного эксперта
         if (isHumanExpert) {
-            handleHumanExpertRequest(update, messageText, modeCode);
+            handleHumanExpertRequest(update, messageText, modeCode, languageCode);
             return;
         }
         
@@ -453,7 +452,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     // Проверяем, что пользователь еще не ответил на опрос
                     if (lastUserQuestion.containsKey(userId) && 
                         !waitingForFeedback.containsKey(userId)) {
-                        sendFeedbackRequest(chatId, userId);
+                        sendFeedbackRequest(chatId, userId, languageCode);
                     }
                 }, feedbackDelayMinutes, TimeUnit.MINUTES);
                 
@@ -469,7 +468,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 logger.error("Ошибка при получении ответа", error);
                 SendMessage errorMessage = new SendMessage();
                 errorMessage.setChatId(chatId.toString());
-                errorMessage.setText("Извините, произошла ошибка. Попробуйте позже.");
+                errorMessage.setText(i18nService.get(languageCode, "common.error.try_later"));
                 
                 try {
                     execute(errorMessage);
@@ -671,6 +670,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         Long userId = callbackQuery.getFrom().getId();
         String username = callbackQuery.getFrom().getUserName();
         Long chatId = callbackQuery.getMessage().getChatId();
+        String languageCode = callbackQuery.getFrom().getLanguageCode();
         
         logger.info("Обработка callback: {} от пользователя {}", data, username);
 
@@ -719,7 +719,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     assistantPromptContextService.setAssistant(userId, assistantCode);
                     assistantPromptContextService.setMode(userId, modeCode);
 
-                    sendTextHelperStickerAndGreeting(chatId, assistantCode);
+                    sendTextHelperStickerAndGreeting(chatId, assistantCode, languageCode);
                     sendCallbackAnswer(callbackQuery.getId(), "✅");
                     return;
                 }
@@ -727,10 +727,10 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     assistantPromptContextService.setAssistant(userId, assistantCode);
                     assistantPromptContextService.setMode(userId, modeCode);
 
-                    sendSpecialistDirectContact(chatId, modeCode, username);
+                    sendSpecialistDirectContact(chatId, modeCode, username, languageCode);
                     // Режим "human expert" завершаем сразу после передачи контакта.
                     assistantPromptContextService.clearMode(userId);
-                    sendCallbackAnswer(callbackQuery.getId(), "✅ Контакт специалиста отправлен");
+                    sendCallbackAnswer(callbackQuery.getId(), i18nService.get(languageCode, "expert.contact.sent"));
                     return;
                 }
             }
@@ -754,7 +754,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     },
                     error -> {
                         logger.error("Ошибка при обработке главного меню", error);
-                        sendCallbackAnswer(callbackQuery.getId(), "❌ Ошибка");
+                        sendCallbackAnswer(callbackQuery.getId(), i18nService.get(languageCode, "common.error.short"));
                     }
                 );
             return;
@@ -775,11 +775,11 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 sendCallbackAnswer(callbackQuery.getId(), result.getCallbackAnswer());
             }
         } else {
-            sendCallbackAnswer(callbackQuery.getId(), "❌ Неизвестная команда");
+            sendCallbackAnswer(callbackQuery.getId(), i18nService.get(languageCode, "common.unknown_command"));
         }
     }
 
-    private void sendTextHelperStickerAndGreeting(Long chatId, String assistantCode) {
+    private void sendTextHelperStickerAndGreeting(Long chatId, String assistantCode, String languageCode) {
         if (textHelperStickerFileId != null && !textHelperStickerFileId.isBlank()) {
             try {
                 SendSticker sendSticker = new SendSticker();
@@ -792,7 +792,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         } else if (!sendStickerFromSet(chatId)) {
             SendMessage stickerInfo = new SendMessage();
             stickerInfo.setChatId(chatId.toString());
-            stickerInfo.setText("Стикерпак: " + stickerPackLink);
+            stickerInfo.setText(i18nService.get(languageCode, "sticker.pack.link", stickerPackLink));
             try {
                 execute(stickerInfo);
             } catch (TelegramApiException e) {
@@ -803,16 +803,14 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         SendMessage greeting = new SendMessage();
         greeting.setChatId(chatId.toString());
         String greetingPrefix = switch (assistantCode) {
-            case "business" -> "Привет, я твой бизнес ИИ-агент. ";
-            case "financial" -> "Привет, я твой финансовый ИИ-агент. ";
-            case "thinking" -> "Привет, я твой ИИ-агент мыслитель. ";
-            default -> "Привет. ";
+            case "business" -> i18nService.get(languageCode, "assistant.greeting.prefix.business");
+            case "financial" -> i18nService.get(languageCode, "assistant.greeting.prefix.financial");
+            case "thinking" -> i18nService.get(languageCode, "assistant.greeting.prefix.thinking");
+            default -> i18nService.get(languageCode, "assistant.greeting.prefix.default");
         };
         greeting.setText(
             greetingPrefix +
-            "Обещаю, что наше общение с тобой будет конфеденциальным. " +
-            "Я помогу тебе найти верное решение и интересующие тебя ответы. " +
-            "А если не найду решение, отправлю твой вопрос основателю и он точно тебе поможет! Что ты хочешь спросить?"
+            i18nService.get(languageCode, "assistant.greeting.body")
         );
         try {
             execute(greeting);
@@ -936,12 +934,10 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     /**
      * Отправляет запрос на опрос пользователю
      */
-    private void sendFeedbackRequest(Long chatId, Long userId) {
+    private void sendFeedbackRequest(Long chatId, Long userId, String languageCode) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText("💬 Оцени, пожалуйста, ответ по шкале от 1 до 10.\n\n" +
-            "10 — всё идеально и максимально полезно.\n" +
-            "Если это не 10, напиши потом короткий комментарий, что можно улучшить.");
+        message.setText(i18nService.get(languageCode, "feedback.request"));
         
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
@@ -978,16 +974,16 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private void handleHumanExpertRequest(Update update, String messageText, String modeCode) {
+    private void handleHumanExpertRequest(Update update, String messageText, String modeCode, String languageCode) {
         Long userId = update.getMessage().getFrom().getId();
         Long chatId = update.getMessage().getChatId();
 
         // По новому сценарию для question/meeting даем прямой контакт, без проксирования через бота.
-        sendSpecialistDirectContact(chatId, modeCode, update.getMessage().getFrom().getUserName());
+        sendSpecialistDirectContact(chatId, modeCode, update.getMessage().getFrom().getUserName(), languageCode);
         assistantPromptContextService.clearMode(userId);
     }
 
-    private void sendSpecialistDirectContact(Long chatId, String modeCode, String userUsername) {
+    private void sendSpecialistDirectContact(Long chatId, String modeCode, String userUsername, String languageCode) {
         boolean isMeeting = "meeting".equals(modeCode);
         AssistantType requiredType = isMeeting ? AssistantType.MEETING : AssistantType.MESSAGE;
         var assistantOpt = assistantService.findRandomActiveAssistantByType(requiredType);
@@ -996,8 +992,8 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             SendMessage msg = new SendMessage();
             msg.setChatId(chatId.toString());
             msg.setText(isMeeting
-                ? "Сейчас нет доступных специалистов для встречи. Попробуйте немного позже."
-                : "Сейчас нет доступных специалистов для сообщений. Попробуйте немного позже.");
+                ? i18nService.get(languageCode, "expert.unavailable.meeting")
+                : i18nService.get(languageCode, "expert.unavailable.message"));
             try {
                 execute(msg);
             } catch (TelegramApiException e) {
@@ -1016,28 +1012,23 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
 
         if (cleanAssistantUsername.isBlank()) {
             message.setText(
-                "Специалист выбран, но у него пока не указан публичный username.\n\n" +
-                "Пожалуйста, обратитесь в поддержку бота, чтобы получить контакт."
+                i18nService.get(languageCode, "expert.username.missing")
             );
         } else if (isMeeting) {
-            message.setText(
-                "Запланируй онлайн встречу с Дмитрием. \n" + "Связаться с ассистентом Дмитрия, для согласования времени и деталей."
-            );
+            message.setText(i18nService.get(languageCode, "expert.meeting.text"));
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             InlineKeyboardButton button = new InlineKeyboardButton();
-            button.setText("Согласовать встречу");
+            button.setText(i18nService.get(languageCode, "expert.meeting.button"));
             button.setUrl("https://t.me/" + cleanAssistantUsername);
             markup.setKeyboard(List.of(List.of(button)));
             message.setReplyMarkup(markup);
         } else {
-            message.setText(
-                "Задай вопрос Дмитрию, чтобы получить ответ."
-            );
+            message.setText(i18nService.get(languageCode, "expert.message.text"));
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             InlineKeyboardButton button = new InlineKeyboardButton();
-            button.setText("Написать специалисту");
+            button.setText(i18nService.get(languageCode, "expert.message.button"));
             button.setUrl("https://t.me/" + cleanAssistantUsername);
             markup.setKeyboard(List.of(List.of(button)));
             message.setReplyMarkup(markup);
@@ -1141,8 +1132,9 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         String username = callbackQuery.getFrom().getUserName();
         String firstName = callbackQuery.getFrom().getFirstName();
         Long chatId = callbackQuery.getMessage().getChatId();
+        String languageCode = callbackQuery.getFrom().getLanguageCode();
         
-        String question = lastUserQuestion.getOrDefault(userId, "Неизвестный вопрос");
+        String question = lastUserQuestion.getOrDefault(userId, i18nService.get(languageCode, "feedback.unknown_question"));
         
         if (data != null && data.startsWith("feedback_rating_")) {
             int rating;
@@ -1150,18 +1142,18 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 rating = Integer.parseInt(data.substring("feedback_rating_".length()));
             } catch (NumberFormatException e) {
                 logger.error("Некорректное значение рейтинга в callback: {}", data, e);
-                sendCallbackAnswer(callbackQuery.getId(), "❌ Некорректная оценка");
+                sendCallbackAnswer(callbackQuery.getId(), i18nService.get(languageCode, "feedback.invalid_rating"));
                 return;
             }
             
             if (rating == 10) {
                 // Для 10/10 комментарий не обязателен
                 feedbackService.saveFeedback(userId, username, firstName, rating, null, null, question);
-                sendCallbackAnswer(callbackQuery.getId(), "✅ Спасибо за оценку 10/10!");
+                sendCallbackAnswer(callbackQuery.getId(), i18nService.get(languageCode, "feedback.rating_10.callback"));
                 
                 SendMessage message = new SendMessage();
                 message.setChatId(chatId.toString());
-                message.setText("Спасибо за отличную оценку! 🙏");
+                message.setText(i18nService.get(languageCode, "feedback.rating_10.message"));
                 try {
                     execute(message);
                 } catch (TelegramApiException e) {
@@ -1176,12 +1168,11 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                 pendingRatings.put(userId, rating);
                 waitingForFeedback.put(userId, "comment");
                 
-                sendCallbackAnswer(callbackQuery.getId(), "✅ Оценка " + rating + "/10 получена");
+                sendCallbackAnswer(callbackQuery.getId(), i18nService.get(languageCode, "feedback.rating.callback", rating));
                 
                 SendMessage message = new SendMessage();
                 message.setChatId(chatId.toString());
-                message.setText("Спасибо за оценку " + rating + "/10.\n" +
-                    "Пожалуйста, напишите короткий комментарий: что можно улучшить, чтобы было 10/10?");
+                message.setText(i18nService.get(languageCode, "feedback.rating.comment_request", rating));
                 try {
                     execute(message);
                 } catch (TelegramApiException e) {
@@ -1198,14 +1189,15 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         Long userId = update.getMessage().getFrom().getId();
         String username = update.getMessage().getFrom().getUserName();
         String firstName = update.getMessage().getFrom().getFirstName();
-        String question = lastUserQuestion.getOrDefault(userId, "Неизвестный вопрос");
+        String languageCode = update.getMessage().getFrom().getLanguageCode();
+        String question = lastUserQuestion.getOrDefault(userId, i18nService.get(languageCode, "feedback.unknown_question"));
         Integer rating = pendingRatings.getOrDefault(userId, null);
         
         feedbackService.saveFeedback(userId, username, firstName, rating, null, comment, question);
         
         SendMessage message = new SendMessage();
         message.setChatId(update.getMessage().getChatId().toString());
-        message.setText("✅ Спасибо за комментарий!");
+        message.setText(i18nService.get(languageCode, "feedback.comment.thanks"));
         
         try {
             execute(message);
@@ -1261,6 +1253,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         Long chatId = update.getMessage().getChatId();
         Long userId = update.getMessage().getFrom().getId();
         String username = update.getMessage().getFrom().getUserName();
+        String languageCode = update.getMessage().getFrom().getLanguageCode();
         
         // Отслеживаем активность
         userService.trackUserActivity(userId);
@@ -1270,7 +1263,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         
         SendMessage processingMessage = new SendMessage();
         processingMessage.setChatId(chatId.toString());
-        processingMessage.setText("⏳ Создаю сводку диалога...");
+        processingMessage.setText(i18nService.get(languageCode, "summary.creating"));
         
         try {
             execute(processingMessage);
@@ -1296,7 +1289,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                     logger.error("Ошибка при создании сводки", error);
                     SendMessage errorMessage = new SendMessage();
                     errorMessage.setChatId(chatId.toString());
-                    errorMessage.setText("❌ Ошибка при создании сводки: " + error.getMessage());
+                    errorMessage.setText(i18nService.get(languageCode, "summary.error", error.getMessage()));
                     
                     try {
                         execute(errorMessage);

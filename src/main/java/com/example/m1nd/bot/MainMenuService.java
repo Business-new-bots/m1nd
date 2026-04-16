@@ -14,45 +14,48 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.example.m1nd.service.AssistantPromptContextService;
+import com.example.m1nd.service.I18nService;
 
 @Service
 public class MainMenuService {
 
     private final AssistantPromptContextService assistantPromptContextService;
+    private final I18nService i18nService;
 
-    public MainMenuService(AssistantPromptContextService assistantPromptContextService) {
+    public MainMenuService(AssistantPromptContextService assistantPromptContextService, I18nService i18nService) {
         this.assistantPromptContextService = assistantPromptContextService;
+        this.i18nService = i18nService;
     }
 
-    public ReplyKeyboardMarkup createMainReplyKeyboard() {
+    public ReplyKeyboardMarkup createMainReplyKeyboard(String languageCode) {
         ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
         keyboardMarkup.setResizeKeyboard(true);
         keyboardMarkup.setOneTimeKeyboard(false);
 
         List<KeyboardRow> rows = new ArrayList<>();
         KeyboardRow row = new KeyboardRow();
-        row.add(new KeyboardButton("📋 Меню"));
+        row.add(new KeyboardButton(i18nService.get(languageCode, "menu.reply.menu")));
         rows.add(row);
 
         keyboardMarkup.setKeyboard(rows);
         return keyboardMarkup;
     }
 
-    public InlineKeyboardMarkup createMainMenuInlineKeyboard() {
+    public InlineKeyboardMarkup createMainMenuInlineKeyboard(String languageCode) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
 
         List<InlineKeyboardButton> row1 = new ArrayList<>();
-        row1.add(button("Бизнес ассистент", "main_business_ai_assistant"));
+        row1.add(button(i18nService.get(languageCode, "menu.main.business"), "main_business_ai_assistant"));
 
         List<InlineKeyboardButton> row2 = new ArrayList<>();
-        row2.add(button("Финансовый ассистент", "main_financial_ai_assistant"));
+        row2.add(button(i18nService.get(languageCode, "menu.main.financial"), "main_financial_ai_assistant"));
 
         List<InlineKeyboardButton> row3 = new ArrayList<>();
-        row3.add(button("Ассистент по мышлению", "main_thinking_ai_assistant"));
+        row3.add(button(i18nService.get(languageCode, "menu.main.thinking"), "main_thinking_ai_assistant"));
 
         List<InlineKeyboardButton> row4 = new ArrayList<>();
-        row4.add(button("Трекер привычек", "main_habits_tracker"));
+        row4.add(button(i18nService.get(languageCode, "menu.main.habits"), "main_habits_tracker"));
 
         keyboard.add(row1);
         keyboard.add(row2);
@@ -63,19 +66,19 @@ public class MainMenuService {
         return markup;
     }
 
-    public SendMessage buildStartMainMenuMessage(Long chatId) {
+    public SendMessage buildStartMainMenuMessage(Long chatId, String languageCode) {
         SendMessage menuMessage = new SendMessage();
         menuMessage.setChatId(chatId.toString());
-        menuMessage.setText("Главное меню");
-        menuMessage.setReplyMarkup(createMainReplyKeyboard());
+        menuMessage.setText(i18nService.get(languageCode, "menu.main.title"));
+        menuMessage.setReplyMarkup(createMainReplyKeyboard(languageCode));
         return menuMessage;
     }
 
-    public SendMessage buildMainMenuMessage(Long chatId) {
+    public SendMessage buildMainMenuMessage(Long chatId, String languageCode) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText("Выберите ассистента:");
-        message.setReplyMarkup(createMainMenuInlineKeyboard());
+        message.setText(i18nService.get(languageCode, "menu.main.choose_assistant"));
+        message.setReplyMarkup(createMainMenuInlineKeyboard(languageCode));
         return message;
     }
 
@@ -93,56 +96,56 @@ public class MainMenuService {
         String data = callbackQuery.getData();
         Long userId = callbackQuery.getFrom().getId();
         Long chatId = callbackQuery.getMessage().getChatId();
+        String languageCode = callbackQuery.getFrom().getLanguageCode();
 
         if ("main_business_ai_assistant".equals(data)) {
             assistantPromptContextService.setAssistant(userId, "business");
             assistantPromptContextService.clearMode(userId);
-            SendMessage message = simpleMessage(chatId, "Бизнес ассистент\n\nВыбрать вариант общения:");
-            message.setReplyMarkup(createCommunicationOptionsKeyboard("business"));
+            SendMessage message = simpleMessage(chatId, i18nService.get(languageCode, "menu.assistant.prompt", assistantTitle("business", languageCode)));
+            message.setReplyMarkup(createCommunicationOptionsKeyboard("business", languageCode));
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
 
         if ("main_financial_ai_assistant".equals(data)) {
             assistantPromptContextService.setAssistant(userId, "financial");
             assistantPromptContextService.clearMode(userId);
-            SendMessage message = simpleMessage(chatId, "Финансовый ассистент\n\nВыбрать вариант общения:");
-            message.setReplyMarkup(createCommunicationOptionsKeyboard("financial"));
+            SendMessage message = simpleMessage(chatId, i18nService.get(languageCode, "menu.assistant.prompt", assistantTitle("financial", languageCode)));
+            message.setReplyMarkup(createCommunicationOptionsKeyboard("financial", languageCode));
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
 
         if ("main_thinking_ai_assistant".equals(data)) {
             assistantPromptContextService.setAssistant(userId, "thinking");
             assistantPromptContextService.clearMode(userId);
-            SendMessage message = simpleMessage(chatId, "Ассистент по мышлению\n\nВыбрать вариант общения:");
-            message.setReplyMarkup(createCommunicationOptionsKeyboard("thinking"));
+            SendMessage message = simpleMessage(chatId, i18nService.get(languageCode, "menu.assistant.prompt", assistantTitle("thinking", languageCode)));
+            message.setReplyMarkup(createCommunicationOptionsKeyboard("thinking", languageCode));
             return Mono.just(MainMenuResult.single(message, "✅"));
         }
 
         if ("main_menu_back".equals(data)) {
             assistantPromptContextService.clear(userId);
-            return Mono.just(MainMenuResult.single(buildMainMenuMessage(chatId), "✅"));
+            return Mono.just(MainMenuResult.single(buildMainMenuMessage(chatId, languageCode), "✅"));
         }
 
         if (data.startsWith("assistant_choice:")) {
             String[] parts = data.split(":");
             if (parts.length == 3) {
-                String assistant = assistantTitle(parts[1]);
+                String assistant = assistantTitle(parts[1], languageCode);
                 String modeCode = parts[2];
-                String mode = modeTitle(modeCode);
+                String mode = modeTitle(modeCode, languageCode);
                 // store original codes (not titles)
                 assistantPromptContextService.setAssistant(userId, parts[1]);
                 assistantPromptContextService.setMode(userId, modeCode);
                 
                 String text;
                 if ("text".equals(modeCode)) {
-                    text = assistant + "\n\nВы выбрали: " + mode + "\n\nОтправьте Ваш запрос:";
+                    text = i18nService.get(languageCode, "menu.mode.text.selected", assistant, mode);
                 } else if ("question".equals(modeCode)) {
-                    text = assistant + "\n\nЗадай вопрос Дмитрию, чтобы получить ответ.";
+                    text = i18nService.get(languageCode, "menu.mode.question.selected", assistant);
                 } else if ("meeting".equals(modeCode)) {
-                    text = assistant + "\n\nЗапланируй онлайн встречу с Дмитрием. \n" +
-                            "Связаться с ассистентом Дмитрия, для согласования времени и деталей.";
+                    text = i18nService.get(languageCode, "menu.mode.meeting.selected", assistant);
                 } else {
-                    text = assistant + "\n\nВы выбрали: " + mode + "\n\nТеперь задайте ваш вопрос.";
+                    text = i18nService.get(languageCode, "menu.mode.default.selected", assistant, mode);
                 }
                 return Mono.just(MainMenuResult.single(
                     simpleMessage(chatId, text),
@@ -152,45 +155,45 @@ public class MainMenuService {
         }
 
         return Mono.just(MainMenuResult.single(
-            simpleMessage(chatId, "Этот раздел пока в разработке."),
-            "Этот раздел пока в разработке."
+            simpleMessage(chatId, i18nService.get(languageCode, "common.in_development")),
+            i18nService.get(languageCode, "common.in_development")
         ));
     }
 
-    private InlineKeyboardMarkup createCommunicationOptionsKeyboard(String assistantCode) {
+    private InlineKeyboardMarkup createCommunicationOptionsKeyboard(String assistantCode, String languageCode) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
         String textAssistantButton = switch (assistantCode) {
-            case "business" -> "1️⃣ Спросить у ИИ бизнес-ассистента";
-            case "financial" -> "1️⃣ Спросить у ИИ финансового-ассистента";
-            case "thinking" -> "1️⃣ Спросить у ИИ-агента мыслителя";
-            default -> "1️⃣ Текстовый помощник";
+            case "business" -> i18nService.get(languageCode, "menu.option.text.business");
+            case "financial" -> i18nService.get(languageCode, "menu.option.text.financial");
+            case "thinking" -> i18nService.get(languageCode, "menu.option.text.thinking");
+            default -> i18nService.get(languageCode, "menu.option.text.default");
         };
 
         keyboard.add(List.of(button(textAssistantButton, "assistant_choice:" + assistantCode + ":text")));
-        keyboard.add(List.of(button("2️⃣ Получить рекомендацию от основателя", "assistant_choice:" + assistantCode + ":question")));
-        keyboard.add(List.of(button("3️⃣ Онлайн-встреча с основателем", "assistant_choice:" + assistantCode + ":meeting")));
-        keyboard.add(List.of(button("◀️ Назад", "main_menu_back")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "menu.option.question"), "assistant_choice:" + assistantCode + ":question")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "menu.option.meeting"), "assistant_choice:" + assistantCode + ":meeting")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "menu.option.back"), "main_menu_back")));
 
         markup.setKeyboard(keyboard);
         return markup;
     }
 
-    private String assistantTitle(String code) {
+    private String assistantTitle(String code, String languageCode) {
         return switch (code) {
-            case "business" -> "Бизнес ассистент";
-            case "financial" -> "Финансовый ассистент";
-            case "thinking" -> "Ассистент по мышлению";
-            default -> "ИИ-ассистент";
+            case "business" -> i18nService.get(languageCode, "menu.main.business");
+            case "financial" -> i18nService.get(languageCode, "menu.main.financial");
+            case "thinking" -> i18nService.get(languageCode, "menu.main.thinking");
+            default -> i18nService.get(languageCode, "menu.assistant.default");
         };
     }
 
-    private String modeTitle(String code) {
+    private String modeTitle(String code, String languageCode) {
         return switch (code) {
-            case "text" -> "Текстовый помощник";
-            case "question" -> "Получить рекомендацию от основателя";
-            case "meeting" -> "Онлайн-встреча с основателем";
-            default -> "Неизвестный вариант";
+            case "text" -> i18nService.get(languageCode, "menu.mode.text");
+            case "question" -> i18nService.get(languageCode, "menu.mode.question");
+            case "meeting" -> i18nService.get(languageCode, "menu.mode.meeting");
+            default -> i18nService.get(languageCode, "menu.mode.unknown");
         };
     }
 

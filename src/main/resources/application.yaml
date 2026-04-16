@@ -72,8 +72,8 @@ app:
   data:
     prompt-file: prompt.txt
   welcome:
-    video-resource-path: ${WELCOME_VIDEO_RESOURCE_PATH:бот_приветствие.mp4}
-    video-file-path: ${WELCOME_VIDEO_FILE_PATH:src/main/resources/бот_приветствие.mp4}
+    video-resource-path: ${WELCOME_VIDEO_RESOURCE_PATH:Untitled_Video.mp4}
+    video-file-path: ${WELCOME_VIDEO_FILE_PATH:src/main/resources/Untitled_Video.mp4}
   sticker:
     text-helper-file-id: ${TEXT_HELPER_STICKER_FILE_ID:}
     text-helper-set-name: ${TEXT_HELPER_STICKER_SET_NAME:r2dog2}
