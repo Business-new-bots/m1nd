@@ -29,7 +29,7 @@ telegram:
   bot:
    token: ${TELEGRAM_BOT_TOKEN:}
    username: ${TELEGRAM_BOT_USERNAME:}
-   welcome-video-file-id: BAACAgIAAxkBAAINXWnZCduM_H9MZ0NO8keXQOmOmiIBAAIFlwAC2MzISmXBjnd9vErOOwQ
+   welcome-video-file-id: BAACAgIAAxkBAAIOl2ng7VDTl7D6F69dlDN2PKU03XMAA_aeAAIiCglLKgn39h0hlP87BA
 
 llm:
   api:
