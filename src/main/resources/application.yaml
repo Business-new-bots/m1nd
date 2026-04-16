@@ -29,6 +29,7 @@ telegram:
   bot:
    token: ${TELEGRAM_BOT_TOKEN:}
    username: ${TELEGRAM_BOT_USERNAME:}
+   welcome-video-file-id: BAACAgIAAxkBAAINXWnZCduM_H9MZ0NO8keXQOmOmiIBAAIFlwAC2MzISmXBjnd9vErOOwQ
 
 llm:
   api:

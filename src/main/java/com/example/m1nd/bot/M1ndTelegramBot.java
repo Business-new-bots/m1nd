@@ -345,6 +345,20 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     }
 
     private void sendWelcomeVideo(Long chatId) {
+        String welcomeVideoFileId = botConfig.getWelcomeVideoFileId();
+
+        if (welcomeVideoFileId != null && !welcomeVideoFileId.isBlank()) {
+            try {
+                SendVideo sendVideo = new SendVideo();
+                sendVideo.setChatId(chatId.toString());
+                sendVideo.setVideo(new InputFile(welcomeVideoFileId));
+                execute(sendVideo);
+                return;
+            } catch (TelegramApiException e) {
+                logger.error("Ошибка при отправке приветственного видео по file_id", e);
+            }
+        }
+
         if (welcomeVideoResourcePath == null || welcomeVideoResourcePath.isBlank()) {
             logger.warn("Приветственное видео не настроено: отсутствуют file_id и путь до ресурса");
             return;
