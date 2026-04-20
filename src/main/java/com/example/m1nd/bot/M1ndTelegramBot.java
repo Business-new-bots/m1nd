@@ -336,7 +336,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
 
         try {
             execute(message);
-            sendWelcomeVideo(chatId);
+            sendWelcomeVideo(chatId, languageCode);
             SendMessage menuMessage = mainMenuService.buildMainMenuMessage(chatId, languageCode);
             execute(menuMessage);
         } catch (TelegramApiException e) {
@@ -344,8 +344,10 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private void sendWelcomeVideo(Long chatId) {
-        String welcomeVideoFileId = botConfig.getWelcomeVideoFileId();
+    private void sendWelcomeVideo(Long chatId, String languageCode) {
+        String welcomeVideoFileId = "en".equalsIgnoreCase(languageCode)
+            ? botConfig.getWelcomeVideoFileIdEn()
+            : botConfig.getWelcomeVideoFileId();
 
         if (welcomeVideoFileId != null && !welcomeVideoFileId.isBlank()) {
             try {

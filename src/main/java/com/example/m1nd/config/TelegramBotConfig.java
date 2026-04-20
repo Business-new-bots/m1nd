@@ -11,5 +11,6 @@ public class TelegramBotConfig {
     private String token;
     private String username;
     private String welcomeVideoFileId;
+    private String welcomeVideoFileIdEn;
 }
 
