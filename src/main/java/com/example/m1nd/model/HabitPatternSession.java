@@ -10,15 +10,14 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "habit_daily_tasks")
-public class HabitDailyTask {
+@Table(name = "habit_pattern_sessions")
+public class HabitPatternSession {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -26,21 +25,15 @@ public class HabitDailyTask {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    @Column(name = "habit_tracker_entry_id")
-    private Long habitTrackerEntryId;
+    @Column(name = "status", nullable = false)
+    private String status;
 
-    @Column(name = "task_text", nullable = false, columnDefinition = "TEXT")
-    private String taskText;
-
-    @Column(name = "task_date", nullable = false)
-    private LocalDate taskDate;
-
-    @Column(name = "remind_evening", nullable = false)
-    private Boolean remindEvening;
-
-    @Column(name = "evening_reminder_sent_at")
-    private LocalDateTime eveningReminderSentAt;
+    @Column(name = "summary_text", columnDefinition = "TEXT")
+    private String summaryText;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
 }

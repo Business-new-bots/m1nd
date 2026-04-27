@@ -88,6 +88,10 @@ app:
     enabled: ${REMINDER_ENABLED:true}  # Включить/выключить напоминания
     inactive-days: ${REMINDER_INACTIVE_DAYS:5}  # Количество дней неактивности перед напоминанием
     cron: ${REMINDER_CRON:0 0 10 * * ?}  # Расписание (каждый день в 10:00)
+  habits:
+    evening-reminder:
+      enabled: ${HABITS_EVENING_REMINDER_ENABLED:true}
+      cron: ${HABITS_EVENING_REMINDER_CRON:0 0 20 * * ?}  # Каждый день в 20:00
 
 search:
   yandex:

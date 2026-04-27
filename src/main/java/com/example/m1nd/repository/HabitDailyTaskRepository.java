@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -12,4 +13,5 @@ public interface HabitDailyTaskRepository extends JpaRepository<HabitDailyTask, 
     void deleteByTaskDateBefore(LocalDate date);
     void deleteByUserIdAndTaskDate(Long userId, LocalDate taskDate);
     Optional<HabitDailyTask> findTopByUserIdAndTaskDateOrderByCreatedAtDesc(Long userId, LocalDate taskDate);
+    List<HabitDailyTask> findByTaskDateAndRemindEveningTrueAndEveningReminderSentAtIsNull(LocalDate taskDate);
 }

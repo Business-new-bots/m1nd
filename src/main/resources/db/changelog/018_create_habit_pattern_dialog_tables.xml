@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="018_create_habit_pattern_sessions" author="cursor">
+        <preConditions onFail="CONTINUE">
+            <not>
+                <tableExists tableName="habit_pattern_sessions"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="habit_pattern_sessions">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="summary_text" type="TEXT"/>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createIndex indexName="idx_habit_pattern_sessions_user_status" tableName="habit_pattern_sessions">
+            <column name="user_id"/>
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="018_create_habit_pattern_messages" author="cursor">
+        <preConditions onFail="CONTINUE">
+            <not>
+                <tableExists tableName="habit_pattern_messages"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="habit_pattern_messages">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="session_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sender_role" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="message_text" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createIndex indexName="idx_habit_pattern_messages_session_id" tableName="habit_pattern_messages">
+            <column name="session_id"/>
+        </createIndex>
+
+        <addForeignKeyConstraint
+                baseTableName="habit_pattern_messages"
+                baseColumnNames="session_id"
+                constraintName="fk_habit_pattern_messages_session_id"
+                referencedTableName="habit_pattern_sessions"
+                referencedColumnNames="id"
+                onDelete="CASCADE"/>
+    </changeSet>
+
+    <changeSet id="018_create_habit_pattern_embeddings" author="cursor">
+        <preConditions onFail="CONTINUE">
+            <not>
+                <tableExists tableName="habit_pattern_embeddings"/>
+            </not>
+        </preConditions>
+
+        <createTable tableName="habit_pattern_embeddings">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="message_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="user_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="embedding_json" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="source_text" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createIndex indexName="idx_habit_pattern_embeddings_user_id" tableName="habit_pattern_embeddings">
+            <column name="user_id"/>
+        </createIndex>
+
+        <addForeignKeyConstraint
+                baseTableName="habit_pattern_embeddings"
+                baseColumnNames="message_id"
+                constraintName="fk_habit_pattern_embeddings_message_id"
+                referencedTableName="habit_pattern_messages"
+                referencedColumnNames="id"
+                onDelete="CASCADE"/>
+    </changeSet>
+</databaseChangeLog>

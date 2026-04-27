@@ -10,36 +10,29 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "habit_daily_tasks")
-public class HabitDailyTask {
+@Table(name = "habit_pattern_embeddings")
+public class HabitPatternEmbedding {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "message_id", nullable = false)
+    private Long messageId;
+
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    @Column(name = "habit_tracker_entry_id")
-    private Long habitTrackerEntryId;
+    @Column(name = "embedding_json", nullable = false, columnDefinition = "TEXT")
+    private String embeddingJson;
 
-    @Column(name = "task_text", nullable = false, columnDefinition = "TEXT")
-    private String taskText;
-
-    @Column(name = "task_date", nullable = false)
-    private LocalDate taskDate;
-
-    @Column(name = "remind_evening", nullable = false)
-    private Boolean remindEvening;
-
-    @Column(name = "evening_reminder_sent_at")
-    private LocalDateTime eveningReminderSentAt;
+    @Column(name = "source_text", nullable = false, columnDefinition = "TEXT")
+    private String sourceText;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

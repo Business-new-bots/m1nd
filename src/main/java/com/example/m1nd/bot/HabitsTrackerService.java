@@ -1,10 +1,17 @@
 package com.example.m1nd.bot;
 
 import com.example.m1nd.model.HabitDailyTask;
+import com.example.m1nd.model.HabitPatternEmbedding;
+import com.example.m1nd.model.HabitPatternMessage;
+import com.example.m1nd.model.HabitPatternSession;
 import com.example.m1nd.model.HabitTrackerEntry;
+import com.example.m1nd.repository.HabitPatternEmbeddingRepository;
+import com.example.m1nd.repository.HabitPatternMessageRepository;
+import com.example.m1nd.repository.HabitPatternSessionRepository;
 import com.example.m1nd.repository.HabitDailyTaskRepository;
 import com.example.m1nd.repository.HabitTrackerEntryRepository;
 import com.example.m1nd.service.I18nService;
+import com.example.m1nd.service.PatternEmbeddingService;
 import com.example.m1nd.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,6 +23,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,10 +34,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class HabitsTrackerService {
     private final HabitTrackerEntryRepository habitTrackerEntryRepository;
     private final HabitDailyTaskRepository habitDailyTaskRepository;
+    private final HabitPatternSessionRepository habitPatternSessionRepository;
+    private final HabitPatternMessageRepository habitPatternMessageRepository;
+    private final HabitPatternEmbeddingRepository habitPatternEmbeddingRepository;
     private final I18nService i18nService;
+    private final PatternEmbeddingService patternEmbeddingService;
     private final UserService userService;
 
     private final Map<Long, HabitDraft> habitDraftByUser = new ConcurrentHashMap<>();
+    private final Map<Long, PatternFlowState> patternFlowByUser = new ConcurrentHashMap<>();
+    private static final String STATUS_ACTIVE = "ACTIVE";
+    private static final String STATUS_COMPLETED = "COMPLETED";
 
     public boolean canHandleCallback(String data) {
         return data != null && (
@@ -40,6 +55,8 @@ public class HabitsTrackerService {
                 || data.startsWith("habits_category:")
                 || data.startsWith("habits_delete_entry:")
                 || data.startsWith("habits_task_reminder:")
+                || "habits_patterns_start".equals(data)
+                || "habits_patterns_latest".equals(data)
         );
     }
 
@@ -61,6 +78,7 @@ public class HabitsTrackerService {
         }
         if ("habits_back_main".equals(data)) {
             habitDraftByUser.remove(userId);
+            patternFlowByUser.remove(userId);
             return CallbackResult.single(buildMainMenuMessage(chatId, languageCode), "✅");
         }
         if (data.startsWith("habits_category:")) {
@@ -72,11 +90,22 @@ public class HabitsTrackerService {
         if (data.startsWith("habits_task_reminder:")) {
             return onTaskReminderSelected(chatId, userId, data.substring("habits_task_reminder:".length()), languageCode);
         }
+        if ("habits_patterns_start".equals(data)) {
+            return startPatternDialog(chatId, userId, languageCode);
+        }
+        if ("habits_patterns_latest".equals(data)) {
+            return showLatestPatternDialog(chatId, userId, languageCode);
+        }
 
         return CallbackResult.single(simpleMessage(chatId, i18nService.get(languageCode, "common.in_development")), "✅");
     }
 
     public TextResult handleText(Long chatId, Long userId, String messageText) {
+        PatternFlowState patternState = patternFlowByUser.get(userId);
+        if (patternState != null) {
+            return handlePatternFlowText(chatId, userId, messageText, patternState);
+        }
+
         HabitDraft draft = habitDraftByUser.get(userId);
         if (draft == null) {
             return TextResult.notHandled();
@@ -280,6 +309,8 @@ public class HabitsTrackerService {
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
         keyboard.add(List.of(button(i18nService.get(languageCode, "habits.add"), "habits_add")));
         keyboard.add(List.of(button(i18nService.get(languageCode, "habits.delete"), "habits_delete")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "habits.pattern.start"), "habits_patterns_start")));
+        keyboard.add(List.of(button(i18nService.get(languageCode, "habits.pattern.latest"), "habits_patterns_latest")));
         keyboard.add(List.of(button(i18nService.get(languageCode, "menu.option.back"), "habits_back_main")));
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(keyboard);
@@ -385,6 +416,185 @@ public class HabitsTrackerService {
         WAIT_REMINDER_CHOICE
     }
 
+    private TextResult handlePatternFlowText(Long chatId, Long userId, String messageText, PatternFlowState state) {
+        savePatternMessage(userId, state.sessionId, "user", messageText);
+        state.answers.add(messageText);
+        state.questionIndex++;
+
+        if (state.questionIndex < patternQuestions(state.languageCode).size()) {
+            String nextQuestion = patternQuestions(state.languageCode).get(state.questionIndex);
+            savePatternMessage(userId, state.sessionId, "assistant", nextQuestion);
+            return TextResult.handled(singleMessage(chatId, nextQuestion));
+        }
+
+        String summary = buildPatternSummary(userId, state.languageCode, state.answers);
+        savePatternMessage(userId, state.sessionId, "assistant", summary);
+        completePatternSession(state.sessionId, summary);
+        patternFlowByUser.remove(userId);
+
+        List<SendMessage> messages = new ArrayList<>();
+        messages.add(simpleMessage(chatId, summary));
+        messages.add(buildHabitsOverviewMessage(chatId, userId, state.languageCode));
+        return TextResult.handled(messages);
+    }
+
+    private CallbackResult startPatternDialog(Long chatId, Long userId, String languageCode) {
+        HabitPatternSession session = new HabitPatternSession();
+        session.setUserId(userId);
+        session.setStatus(STATUS_ACTIVE);
+        session.setCreatedAt(LocalDateTime.now());
+        session.setUpdatedAt(LocalDateTime.now());
+        HabitPatternSession saved = habitPatternSessionRepository.save(session);
+
+        PatternFlowState state = new PatternFlowState();
+        state.sessionId = saved.getId();
+        state.languageCode = languageCode;
+        state.questionIndex = 0;
+        patternFlowByUser.put(userId, state);
+
+        String intro = i18nService.get(languageCode, "habits.pattern.intro");
+        String firstQuestion = patternQuestions(languageCode).get(0);
+        savePatternMessage(userId, saved.getId(), "assistant", intro);
+        savePatternMessage(userId, saved.getId(), "assistant", firstQuestion);
+
+        List<SendMessage> messages = new ArrayList<>();
+        messages.add(simpleMessage(chatId, intro));
+        messages.add(simpleMessage(chatId, firstQuestion));
+        return new CallbackResult(messages, "✅");
+    }
+
+    private CallbackResult showLatestPatternDialog(Long chatId, Long userId, String languageCode) {
+        Optional<HabitPatternSession> latest = habitPatternSessionRepository.findTopByUserIdOrderByUpdatedAtDesc(userId);
+        if (latest.isEmpty()) {
+            return CallbackResult.single(simpleMessage(chatId, i18nService.get(languageCode, "habits.pattern.no_saved")), "ℹ️");
+        }
+
+        HabitPatternSession session = latest.get();
+        if (STATUS_ACTIVE.equals(session.getStatus())) {
+            List<HabitPatternMessage> messages = habitPatternMessageRepository.findBySessionIdOrderByCreatedAtAsc(session.getId());
+            String lastAssistantQuestion = messages.stream()
+                .filter(m -> "assistant".equals(m.getSenderRole()))
+                .max(Comparator.comparing(HabitPatternMessage::getCreatedAt))
+                .map(HabitPatternMessage::getMessageText)
+                .orElse(i18nService.get(languageCode, "habits.pattern.continue_fallback"));
+
+            PatternFlowState state = new PatternFlowState();
+            state.sessionId = session.getId();
+            state.languageCode = languageCode;
+            state.answers = new ArrayList<>();
+            state.questionIndex = (int) messages.stream().filter(m -> "user".equals(m.getSenderRole())).count();
+            patternFlowByUser.put(userId, state);
+            return CallbackResult.single(simpleMessage(chatId, lastAssistantQuestion), "✅");
+        }
+
+        if (session.getSummaryText() != null && !session.getSummaryText().isBlank()) {
+            return CallbackResult.single(simpleMessage(chatId, session.getSummaryText()), "✅");
+        }
+
+        return CallbackResult.single(simpleMessage(chatId, i18nService.get(languageCode, "habits.pattern.summary_missing")), "ℹ️");
+    }
+
+    private void savePatternMessage(Long userId, Long sessionId, String senderRole, String text) {
+        HabitPatternMessage message = new HabitPatternMessage();
+        message.setSessionId(sessionId);
+        message.setSenderRole(senderRole);
+        message.setMessageText(text);
+        message.setCreatedAt(LocalDateTime.now());
+        HabitPatternMessage saved = habitPatternMessageRepository.save(message);
+
+        HabitPatternEmbedding embedding = new HabitPatternEmbedding();
+        embedding.setMessageId(saved.getId());
+        embedding.setUserId(userId);
+        embedding.setEmbeddingJson(patternEmbeddingService.toJson(patternEmbeddingService.embed(text)));
+        embedding.setSourceText(text);
+        embedding.setCreatedAt(LocalDateTime.now());
+        habitPatternEmbeddingRepository.save(embedding);
+    }
+
+    private void completePatternSession(Long sessionId, String summary) {
+        habitPatternSessionRepository.findById(sessionId).ifPresent(session -> {
+            session.setStatus(STATUS_COMPLETED);
+            session.setSummaryText(summary);
+            session.setUpdatedAt(LocalDateTime.now());
+            habitPatternSessionRepository.save(session);
+        });
+    }
+
+    private List<String> patternQuestions(String languageCode) {
+        List<String> questions = new ArrayList<>();
+        questions.add(i18nService.get(languageCode, "habits.pattern.q1"));
+        questions.add(i18nService.get(languageCode, "habits.pattern.q2"));
+        questions.add(i18nService.get(languageCode, "habits.pattern.q3"));
+        questions.add(i18nService.get(languageCode, "habits.pattern.q4"));
+        questions.add(i18nService.get(languageCode, "habits.pattern.q5"));
+        return questions;
+    }
+
+    private String buildPatternSummary(Long userId, String languageCode, List<String> answers) {
+        String joined = String.join(" ", answers).toLowerCase();
+        String problem;
+        if (containsAny(joined, "не усп", "время", "загруж", "работа")) {
+            problem = i18nService.get(languageCode, "habits.pattern.problem.time");
+        } else if (containsAny(joined, "устал", "нет сил", "энерги", "сон")) {
+            problem = i18nService.get(languageCode, "habits.pattern.problem.energy");
+        } else if (containsAny(joined, "страх", "трев", "сомнен", "стыд")) {
+            problem = i18nService.get(languageCode, "habits.pattern.problem.emotion");
+        } else {
+            problem = i18nService.get(languageCode, "habits.pattern.problem.trigger");
+        }
+
+        String similarityBlock = buildSimilarCasesBlock(userId, languageCode, joined);
+        return problem + "\n\n" +
+            i18nService.get(languageCode, "habits.pattern.solutions.title") + "\n" +
+            i18nService.get(languageCode, "habits.pattern.solutions.1") + "\n" +
+            i18nService.get(languageCode, "habits.pattern.solutions.2") + "\n" +
+            i18nService.get(languageCode, "habits.pattern.solutions.3") +
+            similarityBlock;
+    }
+
+    private String buildSimilarCasesBlock(Long userId, String languageCode, String text) {
+        double[] current = patternEmbeddingService.embed(text);
+        List<HabitPatternEmbedding> vectors = habitPatternEmbeddingRepository.findTop100ByUserIdOrderByCreatedAtDesc(userId);
+        double bestScore = 0.0;
+        String bestMatch = null;
+        for (HabitPatternEmbedding vector : vectors) {
+            if (vector.getSourceText() == null || vector.getSourceText().isBlank()) {
+                continue;
+            }
+            if (containsAny(vector.getSourceText(), i18nService.get(languageCode, "habits.pattern.intro"))) {
+                continue;
+            }
+            double score = patternEmbeddingService.cosineSimilarity(current, patternEmbeddingService.fromJson(vector.getEmbeddingJson()));
+            if (score > bestScore) {
+                bestScore = score;
+                bestMatch = vector.getSourceText();
+            }
+        }
+
+        if (bestMatch == null || bestScore < 0.72) {
+            return "";
+        }
+        return "\n\n" + i18nService.get(languageCode, "habits.pattern.similar.title")
+            + "\n- " + i18nService.get(languageCode, "habits.pattern.similar.score", Math.round(bestScore * 100.0))
+            + "\n- " + i18nService.get(languageCode, "habits.pattern.similar.text", truncate(bestMatch, 180));
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength) + "...";
+    }
+
+    private boolean containsAny(String text, String... tokens) {
+        for (String token : tokens) {
+            if (text.contains(token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static class HabitDraft {
         private Stage stage;
         private String habitArea;
@@ -394,6 +604,13 @@ public class HabitsTrackerService {
         private String todayTask;
         private Long savedEntryId;
         private String languageCode;
+    }
+
+    private static class PatternFlowState {
+        private Long sessionId;
+        private String languageCode;
+        private int questionIndex;
+        private List<String> answers = new ArrayList<>();
     }
 
     public static class CallbackResult {
