@@ -17,10 +17,6 @@
     <include file="classpath:db/changelog/011_add_user_progress_counters.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/013_drop_legacy_menu_tables.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/014_add_assistant_type.xml" relativeToChangelogFile="false"/>
-    <include file="classpath:db/changelog/015_create_habit_tracker_entries.xml" relativeToChangelogFile="false"/>
-    <include file="classpath:db/changelog/016_create_habit_daily_tasks.xml" relativeToChangelogFile="false"/>
     <include file="classpath:db/changelog/017_add_preferred_language_to_users.xml" relativeToChangelogFile="false"/>
-    <include file="classpath:db/changelog/018_create_habit_pattern_dialog_tables.xml" relativeToChangelogFile="false"/>
-    <include file="classpath:db/changelog/019_add_evening_reminder_sent_at_to_habit_daily_tasks.xml" relativeToChangelogFile="false"/>
 
 </databaseChangeLog>

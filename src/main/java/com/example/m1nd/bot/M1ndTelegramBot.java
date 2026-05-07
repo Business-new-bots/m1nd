@@ -63,7 +63,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
     private final SummaryService summaryService;
     private final MainMenuService mainMenuService;
     private final AdminMenuService adminMenuService;
-    private final HabitsTrackerService habitsTrackerService;
     private final I18nService i18nService;
     
     @Value("${llm.api.use-llm-service:true}")
@@ -252,17 +251,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
                             }
                         }
                     } else {
-                        HabitsTrackerService.TextResult habitsTextResult =
-                            habitsTrackerService.handleText(chatId, userId, messageText);
-                        if (habitsTextResult.isHandled()) {
-                            for (SendMessage msg : habitsTextResult.getMessages()) {
-                                try {
-                                    execute(msg);
-                                } catch (TelegramApiException e) {
-                                    logger.error("Ошибка при обработке текстового шага трекера привычек", e);
-                                }
-                            }
-                        } else if (waitingForFeedback.getOrDefault(userId, "").equals("comment")) {
+                        if (waitingForFeedback.getOrDefault(userId, "").equals("comment")) {
                         // Обрабатываем комментарий к опросу
                         handleFeedbackComment(update, messageText);
                         } else {
@@ -702,8 +691,7 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
         if ("main_menu_back".equals(data)
             || "main_business_ai_assistant".equals(data)
             || "main_financial_ai_assistant".equals(data)
-            || "main_thinking_ai_assistant".equals(data)
-            || "main_habits_tracker".equals(data)) {
+            || "main_thinking_ai_assistant".equals(data)) {
             clearActiveMeetingState(userId);
         } else if (data != null && data.startsWith("assistant_choice:")) {
             String[] parts = data.split(":");
@@ -723,21 +711,6 @@ public class M1ndTelegramBot extends TelegramLongPollingBot {
             userService.setPreferredLanguage(userId, selectedLanguage);
             sendCallbackAnswer(callbackQuery.getId(), "✅");
             sendLocalizedWelcomeFlow(chatId, userId, username, selectedLanguage);
-            return;
-        }
-
-        if (habitsTrackerService.canHandleCallback(data)) {
-            HabitsTrackerService.CallbackResult habitsResult = habitsTrackerService.handleCallback(callbackQuery);
-            for (SendMessage msg : habitsResult.getMessages()) {
-                try {
-                    execute(msg);
-                } catch (TelegramApiException e) {
-                    logger.error("Ошибка при отправке сообщения трекера привычек", e);
-                }
-            }
-            if (habitsResult.getCallbackAnswer() != null) {
-                sendCallbackAnswer(callbackQuery.getId(), habitsResult.getCallbackAnswer());
-            }
             return;
         }
 
