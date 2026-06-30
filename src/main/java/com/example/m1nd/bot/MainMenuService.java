@@ -1,5 +1,6 @@
 package com.example.m1nd.bot;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
@@ -8,6 +9,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMar
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
+import org.telegram.telegrambots.meta.api.objects.webapp.WebAppInfo;
 import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
@@ -23,12 +25,15 @@ public class MainMenuService {
     private final AssistantPromptContextService assistantPromptContextService;
     private final I18nService i18nService;
     private final UserService userService;
+    private final String wishlistUrl;
 
     public MainMenuService(AssistantPromptContextService assistantPromptContextService, I18nService i18nService,
-                           UserService userService) {
+                           UserService userService,
+                           @Value("${app.wishlist.url}") String wishlistUrl) {
         this.assistantPromptContextService = assistantPromptContextService;
         this.i18nService = i18nService;
         this.userService = userService;
+        this.wishlistUrl = wishlistUrl;
     }
 
     public ReplyKeyboardMarkup createMainReplyKeyboard(String languageCode) {
@@ -39,6 +44,7 @@ public class MainMenuService {
         List<KeyboardRow> rows = new ArrayList<>();
         KeyboardRow row = new KeyboardRow();
         row.add(new KeyboardButton(i18nService.get(languageCode, "menu.reply.menu")));
+        row.add(wishlistWebAppButton(languageCode));
         rows.add(row);
 
         keyboardMarkup.setKeyboard(rows);
@@ -58,9 +64,13 @@ public class MainMenuService {
         List<InlineKeyboardButton> row3 = new ArrayList<>();
         row3.add(button(i18nService.get(languageCode, "menu.main.thinking"), "main_thinking_ai_assistant"));
 
+        List<InlineKeyboardButton> row4 = new ArrayList<>();
+        row4.add(wishlistWebAppInlineButton(languageCode));
+
         keyboard.add(row1);
         keyboard.add(row2);
         keyboard.add(row3);
+        keyboard.add(row4);
 
         markup.setKeyboard(keyboard);
         return markup;
@@ -217,6 +227,19 @@ public class MainMenuService {
         b.setText(text);
         b.setCallbackData(data);
         return b;
+    }
+
+    private KeyboardButton wishlistWebAppButton(String languageCode) {
+        KeyboardButton button = new KeyboardButton(i18nService.get(languageCode, "menu.main.wishlist"));
+        button.setWebApp(new WebAppInfo(wishlistUrl));
+        return button;
+    }
+
+    private InlineKeyboardButton wishlistWebAppInlineButton(String languageCode) {
+        InlineKeyboardButton button = new InlineKeyboardButton();
+        button.setText(i18nService.get(languageCode, "menu.main.wishlist"));
+        button.setWebApp(new WebAppInfo(wishlistUrl));
+        return button;
     }
 
     public static class GameAnswerResult {

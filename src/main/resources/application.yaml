@@ -25,6 +25,10 @@ spring:
 server:
   port: ${PORT:8080}
 
+app:
+  wishlist:
+    url: ${WISHLIST_URL:https://fantastic-fenglisu-890e71.netlify.app/wishlist.html}
+
 telegram:
   bot:
    token: ${TELEGRAM_BOT_TOKEN:}
@@ -85,7 +89,7 @@ app:
     auto-create-enabled: ${AUTO_SUMMARY_ENABLED:true}  # Включить автоматическое создание сводки
     delay-minutes: ${SUMMARY_DELAY_MINUTES:5}  # Задержка после окончания сессии (в минутах)
   reminder:
-    enabled: ${REMINDER_ENABLED:true}  # Включить/выключить напоминания
+    enabled: ${REMINDER_ENABLED:false}  # Включить/выключить напоминания
     inactive-days: ${REMINDER_INACTIVE_DAYS:5}  # Количество дней неактивности перед напоминанием
     cron: ${REMINDER_CRON:0 0 10 * * ?}  # Расписание (каждый день в 10:00)
   habits:
